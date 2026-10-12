@@ -1,0 +1,16 @@
+AutoBuild 3.0.120
+SHA256: 4E2367BD1BB70B5DE9B0E9D618B6D333E98CC79A58679DBBF4DCBE88584D7599
+Fabric/Minecraft 1.21.4 release regression: 21369 assertions PASS.
+Actual AIM -> clickNow -> placeNow, vanilla raycast and simulated server response: 56 assertions PASS.
+Water use via interactItem, retained hand, PendingUpdateManager ACK and real-pour accounting: 311 assertions PASS.
+Movement/controller/planner and native MinecraftClient held attack: 211 assertions PASS.
+Actual collision geometry, pathfinding and multi-tick movement resume: 275 assertions PASS.
+Schematic reference library, native display, placements, transforms and commit: 212 assertions PASS.
+Legacy 109 GUI, native widgets, movement and commit workflow: 18794 assertions PASS.
+All 5 freecam mixins applied to named Minecraft from re-remapped release JAR.
+Custom schematic overlay, model and fluid tint mixins removed; native Litematica rendering restored.
+LayerView and LitematicaConfig match 3.0.109 byte-for-byte.
+Intermediary release: 8 freecam selectors and 3 shadows match runtime.
+New GUI and schematic runtime bytecode uses intermediary Minecraft references only.
+Unrelated 3.0.119 archive entries preserved byte-for-byte.
+Not tested on a live DonutSMP session.
