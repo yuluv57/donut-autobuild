@@ -1,0 +1,8 @@
+{
+  "key.donutautobuild.toggle": "Auto Build: chạy / tạm dừng",
+  "key.donutautobuild.menu": "Auto Build: GUI schematic",
+  "category.donutautobuild": "Donut Auto Build",
+  "key.donutautobuild.layer_up": "Auto Build: xem tầng sche phía trên",
+  "key.donutautobuild.layer_down": "Auto Build: xem tầng sche phía dưới",
+  "key.donutautobuild.freecam": "Camera tự do"
+}

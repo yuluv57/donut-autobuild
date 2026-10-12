@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "id": "donutautobuild",
+  "version": "${version}",
+  "name": "Donut Auto Build",
+  "description": "Tự xây công trình Litematica trong Survival: tự đi, xoay góc như người chơi, lấy vật liệu từ Order, đặt đúng hướng observer/piston.",
+  "authors": [
+    "Tiếng việt"
+  ],
+  "environment": "client",
+  "entrypoints": {
+    "client": [
+      "com.donutautobuild.AutoBuildMod"
+    ]
+  },
+  "jars": [
+    {
+      "file": "META-INF/jars/fabric-rendering-v1-10.1.2+b874120c04.jar"
+    }
+  ],
+  "depends": {
+    "fabricloader": ">=0.16.9",
+    "minecraft": "~1.21.4",
+    "java": ">=21",
+    "litematica": ">=0.21.0",
+    "malilib": "*"
+  },
+  "mixins": [
+    "donutautobuild.freecam.mixins.json"
+  ]
+}

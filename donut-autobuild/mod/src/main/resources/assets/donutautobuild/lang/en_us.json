@@ -1,0 +1,8 @@
+{
+  "key.donutautobuild.toggle": "Auto Build: start / pause",
+  "key.donutautobuild.menu": "Auto Build: schematic GUI",
+  "category.donutautobuild": "Donut Auto Build",
+  "key.donutautobuild.layer_up": "Auto Build: view schematic layer up",
+  "key.donutautobuild.layer_down": "Auto Build: view schematic layer down",
+  "key.donutautobuild.freecam": "Freecam"
+}
