@@ -1,0 +1,4 @@
+# giữ nguyên byte (UTF-8 có BOM cho PowerShell 5.1, CRLF/LF như bản đang chạy trên máy)
+*.ps1 -text
+*.vbs -text
+*.jar binary

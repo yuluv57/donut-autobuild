@@ -1,0 +1,9 @@
+# Chế độ tiết kiệm (mod Donut Relaunch) — chỉ áp dụng khi cửa sổ game KHÔNG được chọn. Sửa xong 1 phút sau tự đọc.
+# enabled: true = bật, false = tắt hẳn
+enabled=true
+# không vẽ thế giới, chỉ vẽ lại 1 khung hình mỗi N giây (0 = vẽ bình thường)
+refreshSeconds=5
+# mỗi N phút dọn RAM và trả bớt bộ nhớ thừa cho Windows (0 = tắt). Tự bỏ qua khi heap đã sát mức -Xms của launcher.
+gcMinutes=10
+# mỗi N phút ghi số đo CPU/RAM vào perf-<tên>.log (0 = tắt)
+perfMinutes=10

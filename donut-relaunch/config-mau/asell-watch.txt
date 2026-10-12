@@ -1,0 +1,7 @@
+# Canh ASell kẹt (mod Donut Relaunch). Sửa xong lưu lại, 1 phút sau mod tự đọc, không cần khởi động lại game.
+# enabled: true = bật, false = tắt hẳn
+enabled=true
+# ASell đứng yên một trạng thái quá số phút này thì /asell stop rồi /asell auto
+stuckMinutes=3
+# ASell khoá an toàn tiền (quarantine) quá số phút này thì cũng bật lại; 0 = không bao giờ đụng vào
+quarantineMinutes=0

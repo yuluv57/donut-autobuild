@@ -1,0 +1,1 @@
+# nick ở đây: script KHÔNG tự khởi động lại launcher (launcher mới chọn nhầm nick), chỉ bấm nút Enter the game. Xoá dòng = thử lại.

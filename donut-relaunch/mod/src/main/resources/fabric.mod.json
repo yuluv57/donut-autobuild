@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "id": "donutrelaunch",
+  "version": "1.3.1",
+  "name": "Donut Relaunch",
+  "description": "Gặp lỗi Invalid session thì tự thoát game để script bấm Enter the game trong Legacy Launcher; mở lại xong tự vào lại server, tự bật lại ASell, tự gỡ ASell khi đứng kẹt, tiết kiệm CPU/RAM khi không xem.",
+  "authors": ["Claude"],
+  "license": "MIT",
+  "environment": "client",
+  "entrypoints": {
+    "client": ["com.donutrelaunch.RelaunchMod"]
+  },
+  "depends": {
+    "fabricloader": ">=0.15.0",
+    "minecraft": "~1.21.4",
+    "fabric-api": "*"
+  }
+}

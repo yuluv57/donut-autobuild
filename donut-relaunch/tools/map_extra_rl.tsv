@@ -1,0 +1,5 @@
+MO	net/minecraft/client/MinecraftClient	getSession	()Lnet/minecraft/client/session/Session;	method_1548
+MO	net/minecraft/client/MinecraftClient	scheduleStop	()V	method_1592
+MO	net/minecraft/client/session/Session	getUsername	()Ljava/lang/String;	method_1676
+FO	net/minecraft/client/MinecraftClient	skipGameRender	Z	field_1743
+MO	net/minecraft/client/MinecraftClient	getOverlay	()Lnet/minecraft/client/gui/screen/Overlay;	method_18506

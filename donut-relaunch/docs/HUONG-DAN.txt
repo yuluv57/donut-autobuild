@@ -1,0 +1,77 @@
+DONUT RELAUNCH 1.3.1 — tự tắt/bật client Legacy Launcher khi lỗi "Invalid session" hoặc crash
+
+GỒM
+- donut-relaunch-fabric-1.21.4-1.0.0.jar : mod (bên trong là bản 1.3.1; giữ tên cũ để ghi đè đúng file đang dùng,
+  đừng để 2 file donut-relaunch trong mods), đã chép sẵn vào mods của Legacy Launcher
+  (C:\Users\Admin\AppData\Roaming\.tlauncher\legacy\Minecraft\game\mods)
+- donut-relaunch.ps1 : script chạy ẩn, đã chép sẵn vào ...\Minecraft\game\donut-relaunch
+- Cai dat Donut Relaunch.vbs : bấm đúp 1 lần → bật script ngay + tự bật mỗi khi mở máy
+- Donut Relaunch.vbs : file tự chạy (bản cài đặt chép nó vào thư mục Startup)
+
+CÁCH HOẠT ĐỘNG
+1. Mod thấy màn hình "Failed to login: Invalid session" / "Failed to verify username" → tự thoát game.
+2. (11/10) Script tắt cửa sổ Legacy Launcher cũ của tài khoản đó rồi mở launcher mới với tham số
+   --username <tên> --launch → launcher tự chọn đúng nick, tự đăng nhập Microsoft và tự vào game sau 3 giây.
+   KHÔNG bấm chuột nên chạy được cả khi bạn đang chơi Valorant / game có anti-cheat, không giật chuột của bạn.
+   Tham số này launcher không lưu vào tl.properties. Muốn quay về kiểu bấm nút cũ: ...\donut-relaunch\launcher.txt → mode=click.
+   An toàn: launcher cũ được giữ tới khi launcher mới vào ĐÚNG nick rồi mới tắt. Nếu launcher mới mở nhầm nick khác
+   (nick đó không có trong danh sách tài khoản chung của launcher) → script tắt ngay game nhầm (nó chưa vào server) + launcher mới,
+   quay về launcher cũ và ghi nick vào ...\donut-relaunch\launcher-block.txt (từ đó nick này chỉ dùng cách bấm nút; xoá dòng = thử lại).
+   Lưu ý: 4 cửa sổ launcher dùng CHUNG 1 danh sách tài khoản, cửa sổ nào lưu sau sẽ ghi đè → thêm tài khoản thì nên thêm trong
+   cửa sổ mở gần nhất. 11/10 có 1 nick bị chọn nhầm thành nick khác vì lý do này, đã chọn lại tay.
+3. Game mở xong (~20–40 giây) → mod tự vào lại server cuối cùng của tài khoản đó.
+4. Trước khi tắt mà ASell (Elytra) đang chạy → vào server 5 giây sau mod tự gõ /asell auto.
+   ASell đang dừng (bạn bấm \ hoặc /asell stop) thì mở lại xong vẫn để dừng.
+   Trạng thái lưu ở ...\donut-relaunch\state-<tên>.txt (asell=1 / asell=0).
+5. (1.2.0) Canh ASell kẹt: ASell báo đang chạy mà đứng yên 1 trạng thái quá 3 phút → mod tự gõ /asell stop rồi /asell auto
+   (bình thường 1 vòng order chỉ 10–30 giây). Kẹt 4 lần trong 30 phút → thoát game cho script mở lại.
+   Không đụng vào khi ASell khoá an toàn tiền (quarantine), khi server restart/bảo trì, khi ASell đang tự dò GUI.
+   Chỉnh ở ...\donut-relaunch\asell-watch.txt (enabled, stuckMinutes, quarantineMinutes) — 1 phút sau tự đọc, khỏi khởi động lại.
+- Game crash / văng → cũng tự mở lại như trên.
+- Bạn tự tắt game (Quit hoặc nút X) → KHÔNG mở lại.
+- Muốn dừng hẳn 1 tài khoản: tắt game rồi đóng luôn cửa sổ Legacy Launcher của nó.
+- Mở lại mà vẫn lỗi → thử lại sau 1, 2, 5, 10, 15 phút… (15 phút/lần, không bỏ).
+
+LƯU Ý
+- Client đang mở từ trước khi cài chưa có mod → phải tắt và bấm Enter the game 1 lần cho mỗi client.
+- Tạm không cho script bấm mở lại (vd khi đang thay mod): ghi 1 vào ...\donut-relaunch\pause.txt;
+  ghi 0 hoặc xoá file → làm tiếp. Lúc tạm dừng script vẫn ghi nhận game nào tắt, bỏ dừng là mở lại ngay.
+- Cho 1 client tự thoát để script mở lại (vd khi thay mod): tạo file ...\donut-relaunch\cmd-<tên>.txt ghi "restart".
+  Ghi "asell-restart" = chỉ bật lại ASell. Mod đọc mỗi 2 giây rồi xoá file.
+- Thử: trong game gõ /relaunchtest → game tự thoát rồi tự mở lại, tự vào server.
+- Nhật ký: ...\Minecraft\game\donut-relaunch\watchdog.log (script) và relaunch.log (mod).
+- Đừng gửi file logs\launcher.log của Legacy Launcher cho ai: launcher ghi cả mã đăng nhập vào đó.
+
+MÀN HÌNH ĐEN (10/10)
+- Lúc cửa sổ đen, game và ASell vẫn chạy bình thường (log của 1 nick lúc 7:00–7:19 PM vẫn mua bán liên tục) → không cần tắt game.
+- Đã chỉnh chung cho 4 client (bản cũ ở ...\donut-relaunch\backup\):
+  options.txt: maxFps 20, tắt VSync, mipmap 0, biome blend 0, khoảng cách hiện thực thể 50%
+  sodium-options.json: tắt "No Error Context" (lỗi đồ hoạ được xử lý thay vì đen màn hình), 1 luồng dựng chunk
+- Máy đang gần hết RAM (93–98%) và CPU 70–100%. Nên: đặt RAM cố định ~2048 MB trong Legacy Launcher (đang "auto"),
+  tắt bớt Chrome/Discord/ChatGPT khi treo đêm, gỡ Iris (shader đang tắt, không dùng tới) khỏi thư mục mods.
+
+GIẢM CPU / RAM KHI TREO (1.3.0, 11/10)
+- Script đặt ưu tiên CPU của 4 game + launcher = BelowNormal: việc khác của bạn (game, Chrome…) được CPU trước,
+  Minecraft chỉ dùng phần còn thừa. Đổi trong ...\donut-relaunch\priority.txt (Idle / BelowNormal / Normal), tự áp dụng.
+- Mod: khi cửa sổ game KHÔNG được chọn → không vẽ thế giới, chỉ vẽ lại 1 khung hình mỗi 5 giây (vẫn thấy HUD ASell,
+  chỉ cập nhật chậm); logic game, mạng, ASell vẫn chạy đủ. Bấm vào cửa sổ là vẽ bình thường ngay.
+  Mỗi 5 phút dọn RAM và trả bớt bộ nhớ thừa cho Windows. Chỉnh ở ...\donut-relaunch\eco.txt (enabled, refreshSeconds, gcMinutes).
+- Số đo CPU/RAM từng game (luồng nào ăn CPU, heap, GC) ghi vào ...\donut-relaunch\perf-<tên>.log mỗi 10 phút.
+- (sửa ở 1.3.1) Chỉ game bị hạ ưu tiên; launcher giữ Normal để mở game nhanh. Dọn RAM đổi thành mỗi 10 phút.
+
+1.3.1 — NGUYÊN NHÂN CHÍNH ĂN CPU + RAM (11/10)
+- CPU: ModMenu tự kiểm tra cập nhật mod lúc mở game bằng "luồng ảo" của Java; trên Windows việc này làm luồng
+  Write-Poller của Java quay vòng vô ích, ăn trọn 1 nhân CPU mỗi game suốt phiên chơi (4 game = 4/8 nhân).
+  Đã tắt trong config\modmenu.json (update_checker=false, bản cũ ở ...\donut-relaunch\backup\modmenu.json).
+  Mod 1.3.1 tự tắt lại nếu ai đó bật lên, và ghi CẢNH BÁO vào relaunch.log nếu thấy luồng Poller quay vòng lần nữa.
+  Kết quả đo: mỗi game 11–13% CPU cả máy → 0,4–0,8%.
+- RAM: Legacy Launcher mặc định chạy game với -Xms (840–2048 MB tuỳ RAM trống) + AlwaysPreTouch (chiếm ngay toàn bộ
+  phần đó) + DisableExplicitGC (chặn dọn RAM). Script giờ ghi vào tl.properties: minecraft.improvedargs.type=NONE và
+  minecraft.javaargs = tham số gọn (G1, -Xms256M, trả RAM thừa, 2 luồng GC). Bản tl.properties cũ ở ...\donut-relaunch\backup\.
+  Tham số chỉnh ở ...\donut-relaunch\launcher.txt (dòng javaargs=; để trống = giữ cấu hình launcher như cũ).
+  Mod 1.3.1 dọn RAM bằng lệnh GC.run của JVM (System.gc bị DisableExplicitGC chặn) và chỉ dọn khi heap còn co được.
+- Launcher nằm ẩn vẫn giữ ~250 MB RAM mỗi cửa sổ → script trả phần không dùng cho Windows 90 giây sau khi game mở, rồi mỗi 30 phút.
+- Số đo CPU/RAM từng nick như cột Task Manager: ...\donut-relaunch\usage.log (mỗi 10 phút).
+- Không gửi PostMessage nữa: đã thử, launcher Java bỏ qua (nó xác định nút theo vị trí con trỏ thật).
+  Khi phải bấm (mode=click), script chỉ bấm lại khi chắc launcher không nhận lệnh: lúc launcher đang chuẩn bị game,
+  nút "Enter the game" biến thành nút HUỶ, bấm thêm là huỷ luôn việc mở game.
