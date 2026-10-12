@@ -1,0 +1,13 @@
+{
+  "required": true,
+  "package": "com.donutautobuild.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "client": [
+    "FreecamCameraMixin",
+    "FreecamLookMixin",
+    "FreecamInteractionMixin",
+    "FreecamHandMixin",
+    "FreecamFogMixin"
+  ],
+  "injectors": { "defaultRequire": 1 }
+}

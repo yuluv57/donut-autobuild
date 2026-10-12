@@ -5,7 +5,7 @@ Mod Fabric (Minecraft 1.21.4) và công cụ tự động hoá để chơi trên
 | Thư mục | Nội dung | Trạng thái |
 |---|---|---|
 | [`donut-relaunch/`](donut-relaunch/) | Treo nhiều nick qua Legacy Launcher: tự mở lại game khi "Invalid session" hoặc crash, tự vào lại server, tự bật lại ASell, gỡ ASell khi kẹt, tiết kiệm CPU/RAM khi treo | 1.3.1 |
-| `donut-autobuild/` | Mod tự xây theo bản thiết kế Litematica (chế độ Chính xác / Nhanh, lấy vật liệu từ Order) | sẽ đưa mã nguồn lên sau |
+| [`donut-autobuild/`](donut-autobuild/) | Mod tự xây theo bản thiết kế Litematica trong Sinh tồn: chế độ Chính xác / Nhanh, tự lấy vật liệu từ Order / Shop / ender chest, tự `/home` khi ngã, an toàn TNT, tự vào lại server khi lag | 3.0.121 |
 
 Mỗi thư mục có `README.md` riêng: cách hoạt động, cách cài, cách build và lịch sử sửa lỗi.
 
