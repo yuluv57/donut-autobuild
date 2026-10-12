@@ -1,12 +1,12 @@
-# Gradle / IDE
+# Gradle / IDE — chỉ thư mục build của dự án Gradle (KHÔNG chặn package com/donutautobuild/build/)
 .gradle/
-build/
-out/
-run/
+/*/mod/build/
+/*/mod/out/
+/*/mod/run/
+/*/mod/bin/
 *.iml
 .idea/
 .vscode/
-bin/
 
 # class biên dịch từ công cụ
 *.class
@@ -22,3 +22,4 @@ pending-jobs.txt
 # jar Minecraft / thư viện (chỉ giữ jar build sẵn của mod trong release/)
 *.jar
 !*/release/*.jar
+!**/gradle/wrapper/gradle-wrapper.jar
