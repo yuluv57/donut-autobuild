@@ -1,0 +1,24 @@
+# Gradle / IDE
+.gradle/
+build/
+out/
+run/
+*.iml
+.idea/
+.vscode/
+bin/
+
+# class biên dịch từ công cụ
+*.class
+
+# Không bao giờ đưa lên: log của launcher có mã đăng nhập Microsoft, log game, file dữ liệu runtime
+launcher.log
+latest.log
+*.log
+alive-*.txt
+exit-*.txt
+pending-jobs.txt
+
+# jar Minecraft / thư viện (chỉ giữ jar build sẵn của mod trong release/)
+*.jar
+!*/release/*.jar
