@@ -1,5 +1,38 @@
 # Lịch sử sửa — donut-automine
 
+## 1.14.1
+
+Sửa bot đứng im rất lâu dù còn khối sót / còn hàng chưa đào (log người dùng 21:47–22:11 trên DonutSMP, khung 67×27×65).
+
+- **Đứng im không ghi log sau khi nhảy qua hố / đứng sát mép hố** (log 22:10:38 → 22:11:29, 51 giây không có dòng nào).
+  1.14.0 cho đường đi thẳng đi một mạch nhiều ô; khi người đứng sát mép hố, góc thân chìa ra trên hố nên phép kiểm tra đường thẳng
+  (tính từ vị trí thật) báo bị chặn, bot bỏ đường rồi tính lại đúng đường đó (tính từ tâm ô thì thông) — lặp mãi mỗi tick.
+  Giờ phép kiểm tra bỏ qua điểm xuất phát, và đường thẳng bị từ chối 3 lần liền thì chuyển sang tìm đường A* (có ghi log).
+- **Còn ô sót mà đứng chờ "thử lại sau"** (log 21:47:39–21:47:56: 6 ô sót ở mép khung, lặp "không có đường tới chỗ đứng nhìn thấy
+  hình dạng thật của khối", mỗi lần chờ lâu dần 1 → 10 giây). Trước khi đi, 1.14.0 đòi tìm trọn đường bằng bộ tìm đường cũ giới hạn
+  3000 ô, trong khi một tầng của khung 67×65 có 4355 ô. Giờ thấy ô sót là đi ngay: chọn chỗ đứng gần nhất (±4 ô) nhìn thấy được ô sót,
+  đường đi tìm bằng bộ tìm đường kiểu AutoBuild (tầm 128 ô, 20000 nút); không có chỗ nào nhìn thấy thì đào đường tới sát ô đó.
+  Ô vừa hỏng xếp sau các ô khác thay vì làm cả bot đứng chờ; thời gian chờ thử lại tối đa 10 → 5 giây.
+  Log ghi `Vét sót: đi tới ô … (đứng …, đang ở …)` để lần sau xem được bot đang đi đâu.
+- **Hàng không đập nhát nào vẫn chờ ~1 giây** (log 21:47:30–21:47:39: "0 nhát liền trong 0,8–0,9 giây" × 18 hàng ≈ 15 giây).
+  Giờ hàng không có nhát nào hoặc không còn ô cần đồng bộ thì đi tiếp ngay.
+- Chờ sỏi/cát rơi khi xong tầng: tối thiểu 40 → 20 tick.
+
+### Kiểm thử
+
+- `MovementRegression` 22 phép (thêm: đứng ở x = 4,28 sát mép hố, đường thẳng về phía trước phải thông — mã 1.14.0 hỏng phép này).
+- Gametest trong Minecraft thật thêm 2 ca: D (khung 50×3×50, 6 ô sót rải xa) và E (khung 67×3×65 như log, 6 ô sót ở hàng trên sát mép z,
+  nhân vật ở đầu kia cách ~55 ô). Đo cả "đứng im ≥ 3 giây mà không đi, không đập được gì".
+
+| Ca | 1.14.0 | 1.14.1 |
+|---|---|---|
+| A. Đường hầm 2 hố | lần này kẹt sau cú nhảy đầu, đứng im 600 tick không log (lỗi trên) | 85 tick |
+| D. 50×3×50, 6 ô sót xa | xong 706 tick, đứng chờ ≥ 3 giây 2 lần | xong 590 tick, 0 lần |
+| E. 67×3×65, 6 ô sót sát mép | xong 447 tick, đứng chờ 1 lần | xong 367 tick, 0 lần |
+
+1.14.1: 11/11 phép trong game. Ca E trong khung phẳng không tái hiện được đúng dòng "không có đường…" của log (trong mỏ thật có hố, tường,
+nước); bước tìm-trọn-đường-trước gây ra dòng đó đã bỏ hẳn.
+
 ## 1.14.0
 
 Bản này theo yêu cầu: di chuyển linh hoạt như AutoBuild, vét khối sót gọn hơn, bỏ những thứ làm chậm.

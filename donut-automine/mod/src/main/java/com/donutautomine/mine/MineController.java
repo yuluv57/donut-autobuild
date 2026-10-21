@@ -770,7 +770,7 @@ public final class MineController {
 
    private void fail(BlockPos var1, String var2) {
       int var3 = this.fails.merge(var1.toImmutable(), 1, Integer::sum);
-      this.retryAt.put(var1.toImmutable(), this.ticks + Math.min(200, 20 * var3));
+      this.retryAt.put(var1.toImmutable(), this.ticks + Math.min(100, 10 * var3));
       this.ghost.request(var1);
       AutoMineMod.LOGGER.info("[AutoMine] Thử lại ô {} sau {} lần: {}", new Object[]{var1.toShortString(), var3, var2});
    }
@@ -837,7 +837,7 @@ public final class MineController {
             }
          }
 
-         return this.ticks - var2 >= Math.max(40, this.settleTicks() * 2);
+         return this.ticks - var2 >= Math.max(20, this.settleTicks());
       }
    }
 
@@ -1204,21 +1204,26 @@ public final class MineController {
 
                   if (var12 != null) {
                      return var12;
-                  } else if (var7.stream().noneMatch(this::retryReady)) {
-                     this.status = "Còn " + var7.size() + " ô — chờ đồng bộ rồi thử lại";
-                     return null;
                   } else {
-                     var7.removeIf(var1x -> !this.retryReady(var1x));
-                     var7.sort(Comparator.comparingDouble(var1x -> var1x.getSquaredDistance(this.mc.player.getPos())));
-                     BlockPos var8 = (BlockPos)var7.getFirst();
-                     MineController.Task var9 = this.approachStrike(var8);
-                     if (var9 != null) {
-                        return var9;
-                     } else {
-                        this.fail(var8, "không có đường tới chỗ đứng nhìn thấy hình dạng thật của khối");
-                        this.lastFail = "không tìm được chỗ đứng để đập " + var7.size() + " ô sót";
-                        return null;
+                     // 1.14.1: còn ô sót là đi tới ngay (ô đang chờ thử lại xếp sau), không đứng chờ
+                     List<BlockPos> var13 = new ArrayList<>(var7);
+                     var13.removeIf(this.waterDams::contains);
+                     boolean var29 = var13.stream().anyMatch(this::retryReady);
+                     var13.sort(
+                        Comparator.comparingDouble(var2x -> (var29 && !this.retryReady(var2x) ? 1.0E7 : 0.0) + var2x.getSquaredDistance(this.mc.player.getPos()))
+                     );
+
+                     for (int var30 = 0; var30 < Math.min(6, var13.size()); var30++) {
+                        MineController.Task var31 = this.approachStrike(var13.get(var30));
+                        if (var31 != null) {
+                           this.status = "Vét sót tầng " + (this.layer + 1) + ": còn " + var7.size() + " ô → đi tới " + var13.get(var30).toShortString();
+                           return var31;
+                        }
                      }
+
+                     this.lastFail = "không tới được " + var7.size() + " ô sót";
+                     this.status = "Còn " + var7.size() + " ô sót không tới được (giữ đập nước / ngoài khung)";
+                     return null;
                   }
                }
             }
@@ -1325,53 +1330,53 @@ public final class MineController {
       return Math.max(16, 8 + 2 * ServerSync.pingTicks(this.mc));
    }
 
+   /**
+    * 1.14.1: đi tới ô sót ngay, không đòi tìm trọn đường trước (bản cũ tìm đường giới hạn 3000 ô, không ra là đứng chờ thử lại).
+    * Chọn chỗ đứng gần nhất (±4 ô) nhìn thấy được ô sót; không có chỗ nào nhìn thấy thì đào đường tới sát ô đó.
+    */
    private MineController.Task approachStrike(BlockPos var1) {
-      if (this.retryReady(var1) && this.region.inside(var1) && !this.waterDams.contains(var1)) {
+      if (this.region.inside(var1) && !this.waterDams.contains(var1)) {
          int var2 = this.region.floor(this.layer);
-         ArrayList<BlockPos> var3 = new ArrayList<>();
+         BlockPos var3 = this.feet();
+         ArrayList<BlockPos> var4 = new ArrayList<>();
 
-         for (int var4 = -3; var4 <= 3; var4++) {
-            for (int var5 = -3; var5 <= 3; var5++) {
-               BlockPos var6 = new BlockPos(var1.getX() + var4, var2, var1.getZ() + var5);
-               if (this.region.insideColumn(var6.getX(), var6.getZ())
-                  && !this.avoid.contains(var6)
-                  && Cells.standable(this.mc, var6)
-                  && Cells.clearBody(this.mc, var6)
-                  && !ServerSync.pending(this.mc, var6.down())
-                  && !var1.equals(var6.down())) {
-                  var3.add(var6);
+         for (int var5 = -4; var5 <= 4; var5++) {
+            for (int var6 = -4; var6 <= 4; var6++) {
+               BlockPos var7 = new BlockPos(var1.getX() + var5, var2, var1.getZ() + var6);
+               if (this.region.insideColumn(var7.getX(), var7.getZ())
+                  && !this.avoid.contains(var7)
+                  && Cells.standable(this.mc, var7)
+                  && Cells.clearBody(this.mc, var7)
+                  && !ServerSync.pending(this.mc, var7.down())
+                  && !var1.equals(var7.down())) {
+                  var4.add(var7);
                }
             }
          }
 
-         HashMap<BlockPos, Direction> var11 = new HashMap<>();
+         var4.sort(Comparator.comparingDouble(var2x -> Math.sqrt(var2x.getSquaredDistance(var3)) + Math.sqrt(var2x.getSquaredDistance(var1)) * 0.5));
 
-         for (BlockPos var14 : var3) {
+         for (BlockPos var14 : var4) {
             for (Direction var10 : Direction.values()) {
                if (this.miningPoint(this.miningEyeAt(var14, true), var1, var10, true) != null) {
-                  var11.put(var14, var10);
-                  break;
+                  MineController.StrikeTask var17 = new MineController.StrikeTask(var1, var10, "tới và đào ô sót", true);
+                  var17.preferStand = var14;
+                  var17.mineApproach = true;
+                  AutoMineMod.LOGGER.info("[AutoMine] Vét sót: đi tới ô {} (đứng {}, đang ở {})", new Object[]{var1.toShortString(), var14.toShortString(), var3.toShortString()});
+                  return var17;
                }
             }
          }
 
-         if (var11.isEmpty()) {
-            return null;
-         } else {
-            PathFinder.Dig var13 = new PathFinder.Dig(this.region, false, var2, false);
-            var13.preserved = this.waterDams;
-            List<PathFinder.Step> var15 = PathFinder.find(this.mc, this.feet(), var11::containsKey, var1, 3000, var13, var2, var2, this.avoid, 0.0);
-            if (var15 == null) {
-               return null;
-            } else {
-               BlockPos var16 = ((PathFinder.Step)var15.getLast()).feet();
-               MineController.StrikeTask var17 = new MineController.StrikeTask(var1, (Direction)var11.get(var16), "tới và đào ô sót", true);
-               var17.single = true;
-               var17.preferStand = var16;
-               var17.mineApproach = true;
-               return var17;
-            }
-         }
+         BlockPos var15 = new BlockPos(var1.getX(), var2, var1.getZ());
+         PathFinder.Dig var16 = new PathFinder.Dig(this.region, false, var2, false);
+         MineController.WalkTask var18 = new MineController.WalkTask(var15, 0.4, var16, "đào đường tới ô sót " + var1.toShortString(), 20000, 1.0);
+         var18.goalTest = var2x -> var2x.getY() == var2 && Math.max(Math.abs(var2x.getX() - var1.getX()), Math.abs(var2x.getZ() - var1.getZ())) <= 1;
+         var18.yLo = var2;
+         var18.yHi = var2;
+         var18.onFail = () -> this.fail(var1, "không đào được đường tới");
+         AutoMineMod.LOGGER.info("[AutoMine] Vét sót: chưa có chỗ đứng nhìn thấy ô {} → đào đường tới sát nó", var1.toShortString());
+         return var18;
       } else {
          return null;
       }
@@ -3665,9 +3670,11 @@ public final class MineController {
                         }
                      }
 
-                     this.settleUntil = this.age
-                        + MineController.this.settleTicks()
-                        + (var27 + MineController.this.config.resyncPerTick - 1) / MineController.this.config.resyncPerTick;
+                     // 1.14.1: hàng không đập nhát nào (đã đào sẵn) hoặc không còn ô nào cần đồng bộ → đi tiếp ngay,
+                     // trước đây vẫn chờ ~1 giây mỗi hàng ("0 nhát liền trong 0,9 giây")
+                     this.settleUntil = this.done > 0 && var27 > 0
+                        ? this.age + MineController.this.settleTicks() + (var27 + MineController.this.config.resyncPerTick - 1) / MineController.this.config.resyncPerTick
+                        : this.age;
                   }
 
                   if (this.age < this.settleUntil) {
@@ -4070,7 +4077,7 @@ public final class MineController {
                                        int var11 = MineController.this.region.floor(MineController.this.layer);
                                        PathFinder.Dig var14 = new PathFinder.Dig(MineController.this.region, false, var11, false);
                                        var14.preserved = MineController.this.waterDams;
-                                       this.walk = MineController.this.new WalkTask(var6, 0.2, var14, "tới chỗ đứng đào ô sót", 3000, 1.0);
+                                       this.walk = MineController.this.new WalkTask(var6, 0.2, var14, "tới chỗ đứng đào ô sót", 20000, 1.0);
                                        this.walk.yLo = var11;
                                        this.walk.yHi = var11;
                                     } else {
@@ -4433,6 +4440,7 @@ public final class MineController {
       int noRise;
       Runnable onFail;
       int aimIdx = -1;
+      int directRejects;
 
       WalkTask(BlockPos nullx, double nullxx, boolean nullxxx, String nullxxxx) {
          this.goal = nullx.toImmutable();
@@ -4628,7 +4636,7 @@ public final class MineController {
                   BlockPos var21 = this.goal;
                   Predicate var24 = this.goalTest != null ? this.goalTest : var1x -> var1x.equals(var21);
                   Keys.releaseMove(MineController.this.mc);
-                  PathFinder.Step var7 = this.replans < 2
+                  PathFinder.Step var7 = this.replans < 2 && this.directRejects < 3
                      ? DirectRoute.next(
                         MineController.this.mc,
                         var3,
@@ -4764,6 +4772,11 @@ public final class MineController {
                         && !DirectRoute.clearSegment(
                            MineController.this.mc, MineController.this.mc.player.getPos(), var22, this.waterAccess, MineController.this.avoid
                         )) {
+                        // 1.14.1: đường thẳng bị từ chối 3 lần liền → chuyển sang tìm đường A* (trước đây lặp mãi mỗi tick, đứng im không ghi log)
+                        if (++this.directRejects == 3) {
+                           AutoMineMod.LOGGER.info("[AutoMine] Đi {}: đường thẳng tới {} bị chặn 3 lần ở {} → tìm đường vòng", new Object[]{this.what, var22.toShortString(), var3.toShortString()});
+                        }
+
                         Keys.releaseMove(MineController.this.mc);
                         this.path = null;
                         this.routeSearch = null;

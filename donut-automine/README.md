@@ -5,7 +5,7 @@ Mod Fabric tự đào một khung (vùng chọn XYZ hoặc placement Litematica)
 
 | | |
 |---|---|
-| Phiên bản | **1.14.0** — [`release/donut-automine-fabric-1.21.4-1.14.0.jar`](release/donut-automine-fabric-1.21.4-1.14.0.jar) |
+| Phiên bản | **1.14.1** — [`release/donut-automine-fabric-1.21.4-1.14.1.jar`](release/donut-automine-fabric-1.21.4-1.14.1.jar) |
 | Minecraft | 1.21.4, Fabric Loader ≥ 0.16.9, Java 21 |
 | Cần thêm | Fabric API, Litematica ≥ 0.21.0, MaLiLib (Sodium/Iris không bắt buộc) |
 
@@ -13,7 +13,7 @@ Thay đổi của từng bản: [`CHANGELOG.md`](CHANGELOG.md).
 
 ## Cài
 
-Đóng Minecraft, xoá JAR AutoMine cũ trong thư mục `mods`, chép `donut-automine-fabric-1.21.4-1.14.0.jar` vào, mở lại game.
+Đóng Minecraft, xoá JAR AutoMine cũ trong thư mục `mods`, chép `donut-automine-fabric-1.21.4-1.14.1.jar` vào, mở lại game.
 Chỉ để **một** JAR AutoMine. Cấu hình cũ (`config/donut-automine.json`) dùng tiếp được; hai mục `rotationMinSpeed`/`rotationMaxSpeed`
 không còn tác dụng vì 1.14.0 quay mặt tức thì.
 
@@ -33,7 +33,7 @@ Các file chính của 1.14.0:
 | `mine/StrikeScore.java` | điểm của một nhát đập vét sót |
 | `mine/AutoBuildNavigation.java`, `mine/DirectRoute.java` | tìm đường: nhảy qua khe cả khi có khối kê, đi thẳng một mạch |
 | `mod/src/test/java/…/MovementRegression.java`, `StrikeRegression.java` | kiểm thử không cần mở game (địa hình giả qua `Cells.probe`) |
-| `mod/src/gametest/java/…/AutoMineClientTest.java` | kiểm thử trong Minecraft thật: nhảy qua hố, cột 3 khối, đào trọn khung 5x3x5 |
+| `mod/src/gametest/java/…/AutoMineClientTest.java` | kiểm thử trong Minecraft thật: nhảy qua hố, cột 3 khối, đào trọn khung 5x3x5, đi vét ô sót ở xa (khung 50×50 và 67×65) |
 
 ## Build
 
@@ -44,7 +44,7 @@ cd mod
 
 Ra `mod/build/libs/donut-automine-fabric-1.21.4-<version>.jar`. `build` chạy luôn 2 bộ kiểm thử; chạy riêng: `./gradlew movementTest strikeTest`.
 
-Kiểm thử trong Minecraft thật: `./gradlew runClientGameTest` (mở game, tạo thế giới đơn, chạy 3 ca trong
+Kiểm thử trong Minecraft thật: `./gradlew runClientGameTest` (mở game, tạo thế giới đơn, chạy 5 ca trong
 `mod/src/gametest/java/com/donutautomine/test/AutoMineClientTest.java` rồi tự thoát; kết quả ở dòng `[GameTest] KẾT QUẢ` trong log).
 Trên Linux không có màn hình: `xvfb-run -a ./gradlew runClientGameTest`.
 Litematica, MaLiLib, Sodium lấy từ Modrinth Maven nên không cần chép jar vào `libs`.

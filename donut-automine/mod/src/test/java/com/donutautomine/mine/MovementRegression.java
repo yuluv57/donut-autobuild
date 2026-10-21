@@ -102,6 +102,12 @@ public final class MovementRegression {
       check(d != null && d.kind() == PathFinder.Kind.JUMP && d.feet().equals(new BlockPos(4, 0, 0)), "đường thẳng gặp hố → JUMP tới (4,0,0), không BRIDGE: " + d);
       PathFinder.Step d2 = DirectRoute.next(null, new BlockPos(4, 0, 0), new BlockPos(10, 0, 0), null, true, false, new HashSet<>());
       check(d2 != null && d2.kind() == PathFinder.Kind.WALK && d2.feet().equals(new BlockPos(10, 0, 0)), "đường thẳng thông → đi một mạch tới (10,0,0): " + d2);
+      // 1.14.1: vừa nhảy qua hố, đáp ở x = 4,28 (góc thân chìa ra trên hố ô 3) → đường thẳng về phía trước vẫn thông.
+      // 1.14.0 coi là bị chặn, bỏ đường rồi tính lại đúng đường đó mỗi tick → đứng im không ghi log.
+      check(DirectRoute.clearSegment(null, new net.minecraft.util.math.Vec3d(4.28, 0.0, 0.5), new BlockPos(10, 0, 0), false, new HashSet<>()),
+         "đứng sát mép hố, đi tiếp về phía trước: đường thẳng thông");
+      check(!DirectRoute.clearSegment(null, new net.minecraft.util.math.Vec3d(4.28, 0.0, 0.5), new BlockPos(0, 0, 0), false, new HashSet<>()),
+         "đi ngược qua hố: đường thẳng bị chặn");
       PathFinder.Step d3 = DirectRoute.next(null, new BlockPos(0, 0, 0), new BlockPos(6, 0, 0), null, true, false, new HashSet<>());
       check(d3 != null && d3.kind() == PathFinder.Kind.WALK && d3.feet().equals(new BlockPos(2, 0, 0)), "đi thẳng tới mép hố (2,0,0) rồi mới nhảy: " + d3);
 

@@ -20,7 +20,9 @@ import net.minecraft.util.math.Direction;
  * Kiểm thử trong Minecraft thật (Fabric client gametest, thế giới đơn):
  * A) đường hầm có hố 1 ô và 2 ô, trong túi có cobblestone → phải nhảy qua, không đặt khối vào hố;
  * B) cột 3 khối, khối giữa bị bedrock che khỏi chỗ đang đứng → vẫn phải chọn khối giữa (đi vòng 1 đoạn), không đập khối trên;
- * C) đào trọn một khung 5x3x5 từ trên mặt đất.
+ * C) đào trọn một khung 5x3x5 từ trên mặt đất;
+ * D) khung 50x3x50 đã đào xong, chỉ còn 6 khối sót rải ở xa → phải đi tới đào hết, không đứng im;
+ * E) như log người dùng: khung 67x65 (quá 3000 ô bộ tìm đường cũ duyệt được), 6 ô sót sát mép, nhân vật ở đầu kia.
  */
 public final class AutoMineClientTest implements FabricClientGameTest {
    static final List<String> RESULTS = new ArrayList<>();
@@ -54,6 +56,25 @@ public final class AutoMineClientTest implements FabricClientGameTest {
       Class.forName("com.donutautomine.mine.BotInput").getMethod("install", MinecraftClient.class).invoke(null, mc);
    }
 
+   /** chờ tới khi điều kiện đúng (tối đa max tick), mỗi giây ghi vị trí/trạng thái để xem lại khi hỏng; trả số tick, -1 nếu hết giờ */
+   static int until(ClientGameTestContext ctx, String tag, java.util.function.Predicate<MinecraftClient> pred, int max) {
+      for (int t = 0; t < max; t++) {
+         if (ctx.computeOnClient(pred::test)) {
+            return t;
+         }
+
+         if (t % 20 == 0) {
+            String line = ctx.computeOnClient(mc -> String.format(java.util.Locale.ROOT, "%.2f %.2f %.2f ground=%s | %s | %s",
+               mc.player.getX(), mc.player.getY(), mc.player.getZ(), mc.player.isOnGround(), AutoMineMod.controller.status(), AutoMineMod.controller.taskLabel()));
+            AutoMineMod.LOGGER.info("[GameTest] {} t={}: {}", tag, t, line);
+         }
+
+         ctx.waitTick();
+      }
+
+      return -1;
+   }
+
    static void check(boolean ok, String what) {
       String line = (ok ? "  ok  " : "  FAIL ") + what;
       RESULTS.add(line);
@@ -79,6 +100,8 @@ public final class AutoMineClientTest implements FabricClientGameTest {
          this.parkour(ctx, sp);
          this.middle(ctx, sp);
          this.fullMine(ctx, sp);
+         this.farLeftovers(ctx, sp);
+         this.userLeftovers(ctx, sp);
       } catch (Exception e) {
          throw new RuntimeException(e);
       }
@@ -113,7 +136,7 @@ public final class AutoMineClientTest implements FabricClientGameTest {
          set(AutoMineMod.controller, "task", walk);
          running(mc);
       });
-      int t = ctx.waitFor(mc -> {
+      int t = until(ctx, "A", mc -> {
          try {
             Object task = get(AutoMineMod.controller, "task");
             if (task != null) {
@@ -173,7 +196,7 @@ public final class AutoMineClientTest implements FabricClientGameTest {
       AutoMineMod.LOGGER.info("[GameTest] B: chọn {} mặt {}", pick[0], pick[1]);
       check(new BlockPos(5, 101, 20).equals(pick[0]) && pick[1] != null && ((Direction)pick[1]).getAxis() != Direction.Axis.Y,
          "B: cột 3 khối bị che khối giữa → vẫn chọn khối giữa mặt ngang: " + pick[0] + " " + pick[1]);
-      int t = ctx.waitFor(mc -> {
+      int t = until(ctx, "B", mc -> {
          try {
             return get(AutoMineMod.controller, "task") == null;
          } catch (Exception e) {
@@ -213,7 +236,7 @@ public final class AutoMineClientTest implements FabricClientGameTest {
          AutoMineMod.controller.resetProgress();
          AutoMineMod.controller.start();
       });
-      int t = ctx.waitFor(mc -> AutoMineMod.controller.state() == MineController.State.DONE || !AutoMineMod.controller.running(), 6000);
+      int t = until(ctx, "C", mc -> AutoMineMod.controller.state() == MineController.State.DONE || !AutoMineMod.controller.running(), 6000);
       String status = ctx.computeOnClient(mc -> AutoMineMod.controller.status());
       int left = ctx.computeOnClient(mc -> {
          int n = 0;
@@ -238,5 +261,101 @@ public final class AutoMineClientTest implements FabricClientGameTest {
       ctx.runOnClient(mc -> AutoMineMod.controller.pause("gametest"));
       AutoMineMod.LOGGER.info("[GameTest] C: {} tick, trạng thái {}, còn {} ô, cobble đặt {}", t, status, left, placed);
       check(left == 0, "C: đào sạch khung 5x3x5 trong " + t + " tick (còn " + left + " ô, trạng thái: " + status + ")");
+   }
+
+   void farLeftovers(ClientGameTestContext ctx, TestSingleplayerContext sp) throws Exception {
+      int[][] blocks = {{145, 100, 145}, {145, 101, 145}, {140, 102, 130}, {120, 100, 146}, {147, 101, 110}, {130, 100, 140}};
+      this.leftovers(ctx, sp, "D", 100, 100, 50, 50, blocks, 101, 101, 4000);
+   }
+
+   /** E) như log người dùng 21:47: khung 67x65, 6 ô sót ở hàng trên cùng sát mép z cuối, nhân vật ở đầu kia cách ~55 ô */
+   void userLeftovers(ClientGameTestContext ctx, TestSingleplayerContext sp) throws Exception {
+      int x0 = 200;
+      int z0 = 300;
+      int z1 = z0 + 64;
+      int[][] blocks = {
+         {x0 + 27, 102, z1 - 1}, {x0 + 33, 102, z1 - 4}, {x0 + 27, 102, z1}, {x0 + 33, 102, z1 - 3}, {x0 + 31, 102, z1 - 1}, {x0 + 31, 102, z1}
+      };
+      this.leftovers(ctx, sp, "E", x0, z0, 67, 65, blocks, x0 + 33, z0 + 8, 4000);
+   }
+
+   void leftovers(ClientGameTestContext ctx, TestSingleplayerContext sp, String tag, int x0, int z0, int sx, int sz, int[][] blocks, int px, int pz, int max)
+      throws Exception {
+      int x1 = x0 + sx - 1;
+      int z1 = z0 + sz - 1;
+      sp.getServer().runCommand("effect give @a resistance infinite 4 true");
+      sp.getServer().runCommand("tp @a " + (x0 + sx / 2) + ".5 120 " + (z0 + sz / 2) + ".5 0 0");
+      ctx.waitTicks(60);
+      sp.getClientWorld().waitForChunksDownload();
+      List<String> cmds = new ArrayList<>(List.of(
+         "fill " + (x0 - 2) + " 99 " + (z0 - 2) + " " + (x1 + 2) + " 99 " + (z1 + 2) + " stone",
+         "fill " + (x0 - 2) + " 100 " + (z0 - 2) + " " + (x1 + 2) + " 104 " + (z1 + 2) + " air",
+         "fill " + (x0 - 1) + " 100 " + (z0 - 1) + " " + (x1 + 1) + " 102 " + (z0 - 1) + " stone",
+         "fill " + (x0 - 1) + " 100 " + (z1 + 1) + " " + (x1 + 1) + " 102 " + (z1 + 1) + " stone",
+         "fill " + (x0 - 1) + " 100 " + (z0 - 1) + " " + (x0 - 1) + " 102 " + (z1 + 1) + " stone",
+         "fill " + (x1 + 1) + " 100 " + (z0 - 1) + " " + (x1 + 1) + " 102 " + (z1 + 1) + " stone"
+      ));
+      for (int[] b : blocks) {
+         cmds.add("setblock " + b[0] + " " + b[1] + " " + b[2] + " stone");
+      }
+
+      cmds.add("tp @a " + px + ".5 100 " + pz + ".5 0 0");
+      for (String c : cmds) {
+         sp.getServer().runCommand(c);
+      }
+
+      ctx.waitTicks(40);
+      ctx.runOnClient(mc -> {
+         AutoMineMod.config.customRegion = true;
+         AutoMineMod.config.regionPlaced = true;
+         AutoMineMod.config.regionX = x0;
+         AutoMineMod.config.regionTopY = 102;
+         AutoMineMod.config.regionZ = z0;
+         AutoMineMod.config.regionSizeX = sx;
+         AutoMineMod.config.regionSizeY = 3;
+         AutoMineMod.config.regionSizeZ = sz;
+         set(AutoMineMod.controller, "region", null);
+         AutoMineMod.controller.resetProgress();
+         AutoMineMod.controller.start();
+      });
+      List<String> idle = new ArrayList<>();
+      double[] last = {Double.NaN, 0};
+      int[] still = {0, 0, -1};
+      int t = until(ctx, tag, mc -> {
+         if (AutoMineMod.controller.state() == MineController.State.DONE || !AutoMineMod.controller.running()) {
+            return true;
+         }
+
+         double x = mc.player.getX();
+         double z = mc.player.getZ();
+         boolean moved = Double.isNaN(last[0]) || Math.hypot(x - last[0], z - last[1]) > 0.01;
+         last[0] = x;
+         last[1] = z;
+         int done = AutoMineMod.controller.strikes() + AutoMineMod.controller.cleared();
+         boolean progress = done != still[2];
+         still[2] = done;
+         still[0] = moved || progress ? 0 : still[0] + 1;
+         if (still[0] == 60) {
+            still[1]++;
+            idle.add(AutoMineMod.controller.status() + " | " + AutoMineMod.controller.taskLabel());
+         }
+
+         return false;
+      }, max);
+      String status = ctx.computeOnClient(mc -> AutoMineMod.controller.status());
+      int left = ctx.computeOnClient(mc -> {
+         int n = 0;
+         for (BlockPos p : BlockPos.iterate(x0, 100, z0, x1, 102, z1)) {
+            if (!mc.world.getBlockState(p).isAir()) {
+               n++;
+            }
+         }
+
+         return n;
+      });
+      ctx.runOnClient(mc -> AutoMineMod.controller.pause("gametest"));
+      AutoMineMod.LOGGER.info("[GameTest] {}: {} tick, trạng thái {}, còn {} ô, đứng im ≥3 giây {} lần: {}", tag, t, status, left, still[1], idle);
+      check(left == 0, tag + ": khung " + sx + "x3x" + sz + ", đi đào hết " + blocks.length + " ô sót ở xa trong " + t + " tick (còn " + left + " ô, trạng thái: " + status + ")");
+      check(still[1] == 0, tag + ": không lần nào đứng im ≥ 3 giây mà không đập được gì (" + still[1] + " lần: " + idle + ")");
    }
 }

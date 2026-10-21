@@ -35,7 +35,8 @@ public final class DirectRoute {
          int var10 = Math.max(1, (int)Math.ceil(Math.hypot(var6, var8) / 0.16));
          HashSet var11 = new HashSet();
 
-         for (int var12 = 0; var12 <= var10; var12++) {
+         // 1.14.1: bỏ điểm xuất phát (người đang đứng đó rồi) — đứng sát mép hố thì góc thân chìa ra trên hố, trước đây bị coi là đường chặn
+         for (int var12 = 1; var12 <= var10; var12++) {
             double var13 = var1.x + var6 * var12 / var10;
             double var15 = var1.z + var8 * var12 / var10;
 
