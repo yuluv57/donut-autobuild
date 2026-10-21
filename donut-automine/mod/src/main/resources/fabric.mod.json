@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "id": "donutautomine",
+  "version": "${version}",
+  "name": "Donut Auto Mine",
+  "description": "Auto Mine 3x3: ngắm theo hình dạng thật của cỏ và khối nhỏ; chỉ tới chỗ đứng nhìn thấy mục tiêu, giữ mục tiêu qua bước di chuyển và đào. Giữ tư thế đào, camera đi ngang, khối kê, Order, xử lý nước, khung XYZ và freecam.",
+  "authors": [
+    "Tiếng việt"
+  ],
+  "environment": "client",
+  "entrypoints": {
+    "client": [
+      "com.donutautomine.AutoMineMod",
+      "com.donutautomine.RegionPreview"
+    ]
+  },
+  "depends": {
+    "fabricloader": ">=0.16.9",
+    "minecraft": "~1.21.4",
+    "java": ">=21",
+    "fabric-api": "*",
+    "litematica": ">=0.21.0",
+    "malilib": "*"
+  },
+  "mixins": [
+    "donutautomine.mixins.json"
+  ]
+}

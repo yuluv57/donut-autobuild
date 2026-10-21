@@ -1,0 +1,49 @@
+// Donut AutoMine — Fabric 1.21.4. Mã nguồn dịch ngược từ 1.13.0 rồi sửa (xem ../README.md).
+plugins { id 'fabric-loom' version '1.17.7' }
+version = project.mod_version
+group = 'com.donutautomine'
+base { archivesName = 'donut-automine-fabric-1.21.4' }
+repositories {
+    mavenCentral()
+    // Litematica, MaLiLib, Sodium lấy từ Modrinth Maven (mã phiên bản Modrinth)
+    maven { url = 'https://api.modrinth.com/maven'; content { includeGroup 'maven.modrinth' } }
+}
+dependencies {
+    minecraft "com.mojang:minecraft:${project.minecraft_version}"
+    mappings "net.fabricmc:yarn:${project.yarn_mappings}:v2"
+    modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
+    modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
+    modImplementation 'maven.modrinth:litematica:Z7jnVo9V'   // 0.21.7
+    modImplementation 'maven.modrinth:malilib:ifi4uRpL'      // 0.23.5
+    modCompileOnly 'maven.modrinth:sodium:c3YkZvne'        // 0.6.13 (mixin freecam tuỳ chọn)
+}
+processResources { inputs.property 'version', project.version; filesMatching('fabric.mod.json') { expand 'version': project.version } }
+java { toolchain { languageVersion = JavaLanguageVersion.of(21) } }
+tasks.withType(JavaCompile).configureEach { options.release = 21; options.encoding = 'UTF-8' }
+
+// 1.14.0: kiểm thử không cần mở game (địa hình giả qua Cells.probe)
+tasks.register('movementTest', JavaExec) {
+    dependsOn 'testClasses'
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'com.donutautomine.mine.MovementRegression'
+    jvmArgs '-Dstdout.encoding=UTF-8', '-Dfile.encoding=UTF-8'
+}
+tasks.register('strikeTest', JavaExec) {
+    dependsOn 'testClasses'
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'com.donutautomine.mine.StrikeRegression'
+    jvmArgs '-Dstdout.encoding=UTF-8', '-Dfile.encoding=UTF-8'
+}
+tasks.named('test') { enabled = false }
+tasks.named('check') { dependsOn 'movementTest', 'strikeTest' }
+
+// Kiểm thử trong Minecraft thật: ./gradlew runClientGameTest (cần màn hình, Linux dùng xvfb-run)
+fabricApi {
+    configureTests {
+        createSourceSet = true
+        modId = 'donutautomine-gametest'
+        enableGameTests = false
+        enableClientGameTests = true
+        eula = true
+    }
+}

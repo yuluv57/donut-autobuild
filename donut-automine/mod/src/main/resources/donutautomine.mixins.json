@@ -1,0 +1,19 @@
+{
+  "required": false,
+  "minVersion": "0.8",
+  "package": "com.donutautomine.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "client": [
+    "CameraMixin",
+    "FreeCamLookMixin",
+    "FreeCamInteractionMixin",
+    "FreeCamFogMixin",
+    "FreeCamOverlayMixin",
+    "FreeCamTerrainMixin",
+    "FreeCamSodiumTerrainMixin",
+    "FreeCamSodiumFacesMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 0
+  }
+}
