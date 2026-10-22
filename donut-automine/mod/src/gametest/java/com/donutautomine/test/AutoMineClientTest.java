@@ -32,7 +32,9 @@ import net.minecraft.util.math.Direction;
  * J2) rãnh 1 ô sâu 1 ô cắt ngang sàn của tầng CHƯA đào → đào hàng băng qua rãnh (nhảy qua, không lấp, không ngồi im);
  * J3) rãnh chạy dọc làn bên của hàng → đi dọc mép rãnh vẫn đập 3x3; J4) rãnh cắt ngang lối vào khung → nhảy qua tới đầu hàng;
  * K/K2) khối giữa lát bị server trả lại 2 / 6 lần → thang đổi góc (lùi, lùi, trái, phải, ngồi), không đập khối xung quanh, quá 5 lần để cuối tầng;
- * K3) 3x3 vỡ nhưng riêng khối giữa hiện lại 3 lần.
+ * K3) 3x3 vỡ nhưng riêng khối giữa hiện lại 3 lần; K4) 2 khối giữa hiện lại, khối gần che khối xa;
+ * K5) sỏi rơi xuống nằm đúng chỗ khối giữa (khối dưới bị 3x3 bỏ sót) như ảnh "lần 0 · đập"; K6) khối không bao giờ phá được → không tự dừng;
+ * K7) đang đào bị ép "làm lại vì kẹt" 3 kiểu → vẫn đào sạch; K8) bedrock giữa hàng che kín lát sau → đi vòng qua làn bên.
  */
 public final class AutoMineClientTest implements FabricClientGameTest {
    static final List<String> RESULTS = new ArrayList<>();
@@ -223,6 +225,26 @@ public final class AutoMineClientTest implements FabricClientGameTest {
 
          if (on("K3")) {
             this.revertRow(ctx, sp, "K3", 480, 3, true);
+         }
+
+         if (on("K4")) {
+            this.hiddenMiddle(ctx, sp);
+         }
+
+         if (on("K5")) {
+            this.gravelMiddle(ctx, sp);
+         }
+
+         if (on("K6")) {
+            this.neverStop(ctx, sp);
+         }
+
+         if (on("K7")) {
+            this.forcedRecover(ctx, sp);
+         }
+
+         if (on("K8")) {
+            this.detour(ctx, sp);
          }
       } catch (Exception e) {
          throw new RuntimeException(e);
@@ -754,6 +776,11 @@ public final class AutoMineClientTest implements FabricClientGameTest {
    }
 
    int runMine(ClientGameTestContext ctx, String tag, int x0, int z0, int sx, int sz, int max) throws Exception {
+      return this.runMine(ctx, tag, x0, z0, sx, sz, max, 0);
+   }
+
+   /** keepLeft = số ô cố ý không đào được (server huỷ mãi) → chỉ kiểm tra còn đúng chừng đó ô và mod vẫn chạy, không dừng */
+   int runMine(ClientGameTestContext ctx, String tag, int x0, int z0, int sx, int sz, int max, int keepLeft) throws Exception {
       ctx.runOnClient(mc -> {
          AutoMineMod.config.customRegion = true;
          AutoMineMod.config.regionPlaced = true;
@@ -817,8 +844,17 @@ public final class AutoMineClientTest implements FabricClientGameTest {
          return n;
       });
       String status = ctx.computeOnClient(mc -> AutoMineMod.controller.status());
+      // không tự dừng = còn chạy hoặc đã đào xong khung (không phải bị tạm dừng)
+      boolean running = ctx.computeOnClient(mc -> AutoMineMod.controller.running() || AutoMineMod.controller.state() == MineController.State.DONE);
       ctx.runOnClient(mc -> AutoMineMod.controller.pause("gametest"));
       AutoMineMod.LOGGER.info("[GameTest] {}: {} tick, còn {} ô, cobble đặt {}, trạng thái {}, đứng im ≥3 giây {} lần: {}", tag, t, left, placed, status, still[1], idle);
+      if (keepLeft > 0) {
+         check(left <= keepLeft, tag + ": đào hết trừ " + keepLeft + " ô không phá được (còn " + left + " ô, trạng thái: " + status + ")");
+         check(still[1] == 0, tag + ": không lần nào đứng im ≥ 3 giây (" + still[1] + " lần: " + idle + ")");
+         check(running, tag + ": mod không tự dừng (còn chạy hoặc đã xong khung; trạng thái: " + status + ")");
+         return t;
+      }
+
       check(left == 0, tag + ": đào sạch trong " + t + " tick (còn " + left + " ô, trạng thái: " + status + ")");
       check(still[1] == 0, tag + ": không lần nào đứng im ≥ 3 giây (" + still[1] + " lần: " + idle + ")");
       check(placed == 0, tag + ": không lấp rãnh (" + placed + " cobble)");
@@ -903,7 +939,8 @@ public final class AutoMineClientTest implements FabricClientGameTest {
 
       StringBuilder b = new StringBuilder();
       for (Object[] a : at) {
-         b.append(String.format(java.util.Locale.ROOT, " (%.2f %.2f %s %s)", a[1], a[2], (Boolean)a[3] ? "ngồi" : "đứng", (Boolean)a[4] ? "huỷ" : "vỡ"));
+         net.minecraft.util.math.Vec3d h = ((net.minecraft.util.math.Vec3d)a[5]).subtract(net.minecraft.util.math.Vec3d.of(mid));
+         b.append(String.format(java.util.Locale.ROOT, " (%.2f %.2f %s %s, trúng %.2f %.2f %.2f)", a[1], a[2], (Boolean)a[3] ? "ngồi" : "đứng", (Boolean)a[4] ? "huỷ" : "vỡ", h.x, h.y, h.z));
       }
 
       AutoMineMod.LOGGER.info("[GameTest] {}: nhát vào khối giữa {}:{}; nhát lẻ khối xung quanh trong lúc thử: {}; nhát lát sau khi để dành: {}", tag, mid.toShortString(), b, around, laterSlices);
@@ -924,11 +961,121 @@ public final class AutoMineClientTest implements FabricClientGameTest {
          check((Boolean)at.get(5)[3] && !(Boolean)at.get(1)[3] && !(Boolean)at.get(4)[3], tag + ": lần 5 ngồi đập lẻ, các lần trước đứng đập 3x3");
       }
 
+      // 1.14.4: mỗi lần đập lại ngắm một điểm khác trên khối (điểm trúng tương đối so với khối khác nhau)
+      int sameAim = 0;
+      for (int i = 1; i < Math.min(at.size(), ladder); i++) {
+         net.minecraft.util.math.Vec3d p0 = ((net.minecraft.util.math.Vec3d)at.get(i - 1)[5]).subtract(net.minecraft.util.math.Vec3d.of(mid));
+         net.minecraft.util.math.Vec3d p1 = ((net.minecraft.util.math.Vec3d)at.get(i)[5]).subtract(net.minecraft.util.math.Vec3d.of(mid));
+         if (p0.distanceTo(p1) < 0.1) {
+            sameAim++;
+         }
+      }
+
+      if (at.size() >= 2) {
+         check(sameAim == 0, tag + ": mỗi lần đập lại ngắm điểm khác trên khối (" + sameAim + " lần trùng điểm trước)");
+      }
+
       if (rejects > 5) {
          check(laterSlices > 0, tag + ": thử 5 lần không được thì đi tiếp, không đứng thử mãi (" + laterSlices + " nhát lát sau)");
       }
 
       Fake3x3Pickaxe.reject.clear();
       Fake3x3Pickaxe.restore.clear();
+   }
+
+   /** K4: 2 khối giữa liền nhau hiện lại lệch nhau vài tick, khối xa hiện trước → khối gần che khối xa; phải đập khối gần trước, không đứng ngắm mãi */
+   void hiddenMiddle(ClientGameTestContext ctx, TestSingleplayerContext sp) throws Exception {
+      int x0 = 500;
+      this.trenchWorld(ctx, sp, x0, 400, 10, 3, List.of("fill " + (x0 - 2) + " 100 401 " + (x0 - 1) + " 101 401 air"), true, new int[0][], x0 - 1.5, 401.5);
+      Fake3x3Pickaxe.restoreLater.put(new BlockPos(x0 + 3, 101, 401), 30);
+      Fake3x3Pickaxe.restoreLater.put(new BlockPos(x0 + 4, 101, 401), 14);
+      this.runMine(ctx, "K4", x0, 400, 10, 3, 1200);
+      Fake3x3Pickaxe.restoreLater.clear();
+   }
+
+   /**
+    * K5 (như ảnh "Đập lại khối giữa … lần 0 · đập"): nhát 3x3 bỏ sót khối dưới và khối trên (sỏi) của 1 lát → khối giữa vỡ xong sỏi rơi xuống
+    * nằm đúng chỗ khối giữa; lát sau đó cũng vậy. Phải đập được, không đứng im.
+    */
+   void gravelMiddle(ClientGameTestContext ctx, TestSingleplayerContext sp) throws Exception {
+      int x0 = 520;
+      List<String> cmds = new ArrayList<>(List.of("fill " + (x0 - 2) + " 100 401 " + (x0 - 1) + " 101 401 air"));
+      for (int x : new int[]{x0 + 4, x0 + 5}) {
+         cmds.add("setblock " + x + " 102 401 gravel");
+         Fake3x3Pickaxe.keep.add(new BlockPos(x, 100, 401));
+         Fake3x3Pickaxe.keep.add(new BlockPos(x, 102, 401));
+      }
+
+      this.trenchWorld(ctx, sp, x0, 400, 10, 3, cmds, true, new int[0][], x0 - 1.5, 401.5);
+      this.runMine(ctx, "K5", x0, 400, 10, 3, 1500);
+      Fake3x3Pickaxe.keep.clear();
+   }
+
+   /** K6: khối giữa server không bao giờ cho phá → đào hết phần còn lại (đi vòng qua làn bên), mod không tự dừng dù chờ lâu */
+   void neverStop(ClientGameTestContext ctx, TestSingleplayerContext sp) throws Exception {
+      int x0 = 540;
+      this.trenchWorld(ctx, sp, x0, 400, 10, 3, List.of("fill " + (x0 - 2) + " 100 401 " + (x0 - 1) + " 101 401 air"), true, new int[0][], x0 - 1.5, 401.5);
+      BlockPos stubborn = new BlockPos(x0 + 4, 101, 401);
+      Fake3x3Pickaxe.reject.put(stubborn, 1000000);
+      Fake3x3Pickaxe.keep.add(stubborn);
+      int old = MineController.watchdogTicks;
+      MineController.watchdogTicks = 200;
+      int rec0 = ctx.computeOnClient(mc -> AutoMineMod.controller.recoveriesTotal);
+      try {
+         this.runMine(ctx, "K6", x0, 400, 10, 3, 2400, 1);
+      } finally {
+         MineController.watchdogTicks = old;
+         Fake3x3Pickaxe.reject.clear();
+         Fake3x3Pickaxe.keep.clear();
+      }
+
+      int rec = ctx.computeOnClient(mc -> AutoMineMod.controller.recoveriesTotal) - rec0;
+      AutoMineMod.LOGGER.info("[GameTest] K6: làm lại vì kẹt {} lần", rec);
+   }
+
+   /** K7: đang đào thì ép làm lại vì kẹt 3 kiểu (làm lại kế hoạch, đi chỗ khác, vào lại tầng) → vẫn đào sạch, không dừng */
+   void forcedRecover(ClientGameTestContext ctx, TestSingleplayerContext sp) throws Exception {
+      int x0 = 560;
+      this.trenchWorld(ctx, sp, x0, 400, 12, 6, List.of("fill " + (x0 - 2) + " 100 401 " + (x0 - 1) + " 101 401 air"), true, new int[0][], x0 - 1.5, 401.5);
+      java.lang.reflect.Method recover = MineController.class.getDeclaredMethod("recover", String.class);
+      recover.setAccessible(true);
+      Thread t = new Thread(() -> {
+         try {
+            for (int i = 0; i < 3; i++) {
+               Thread.sleep(2500);
+               int kind = i;
+               MinecraftClient.getInstance().execute(() -> {
+                  try {
+                     if (AutoMineMod.controller.running()) {
+                        // lần 1 làm lại kế hoạch, lần 2 đi chỗ khác, lần 3 vào lại tầng
+                        set(AutoMineMod.controller, "recoveries", kind);
+                        recover.invoke(AutoMineMod.controller, "gametest ép kẹt");
+                     }
+                  } catch (Exception e) {
+                     AutoMineMod.LOGGER.warn("[GameTest] K7: không ép được", e);
+                  }
+               });
+            }
+         } catch (Exception e) {
+            AutoMineMod.LOGGER.warn("[GameTest] K7: không ép được", e);
+         }
+      });
+      int rec0 = ctx.computeOnClient(mc -> AutoMineMod.controller.recoveriesTotal);
+      t.setDaemon(true);
+      t.start();
+      this.runMine(ctx, "K7", x0, 400, 12, 6, 2400);
+      t.join(1000);
+      int rec = ctx.computeOnClient(mc -> AutoMineMod.controller.recoveriesTotal) - rec0;
+      check(rec >= 2, "K7: đã ép làm lại " + rec + " lần mà vẫn đào sạch");
+   }
+
+   /** K8: khối giữa một lát là bedrock (không phá được) che kín mặt lát sau → phải đi vòng qua làn bên đào nốt, không đứng im */
+   void detour(ClientGameTestContext ctx, TestSingleplayerContext sp) throws Exception {
+      int x0 = 580;
+      this.trenchWorld(ctx, sp, x0, 400, 10, 3, List.of(
+         "fill " + (x0 - 2) + " 100 401 " + (x0 - 1) + " 101 401 air",
+         "setblock " + (x0 + 4) + " 101 401 bedrock"
+      ), true, new int[0][], x0 - 1.5, 401.5);
+      this.runMine(ctx, "K8", x0, 400, 10, 3, 2400, 1);
    }
 }

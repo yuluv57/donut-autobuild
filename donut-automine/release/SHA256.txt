@@ -2,3 +2,4 @@ df0511eb64e45e02a95e67242f52d351defa4c9c0ab7e0c6c54d428cd4e6632f  donut-automine
 eebd6bb31fa7aca285778f0cf1e9b95a00b7ec4d3f0034b969a6918bc68d04e5  donut-automine-fabric-1.21.4-1.14.1.jar
 9bf6c6ee7fd69281b0692e90aa0c35d9fac5cc7999e4e321a2e512940169b9c4  donut-automine-fabric-1.21.4-1.14.2.jar
 fba241e27c908d82c9eab2c8aa8efd7b615c8c4bacf46e2808487a294384cdb4  donut-automine-fabric-1.21.4-1.14.3.jar
+e1d5bd4facd6dfe6b265c44af3e6ca8a843d2bab05d07c51f794fe0167526999  donut-automine-fabric-1.21.4-1.14.4.jar

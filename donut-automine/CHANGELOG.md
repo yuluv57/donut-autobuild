@@ -1,5 +1,64 @@
 # Lịch sử sửa — donut-automine
 
+## 1.14.4
+
+Theo 4 yêu cầu của người dùng (kèm ảnh HUD đứng ở "Đập lại khối giữa … lần 0 · đập"): đổi vị trí thì đổi cả điểm ngắm; không đứng im
+ở trạng thái đập lại khối giữa; bị chặn thì đi vòng, không đi đi lại lại / đứng im; **không dừng vì bất cứ lý do gì** — không đào được thì
+di chuyển rồi bắt đầu lại.
+
+### 1. Đổi chỗ thì đổi cả điểm ngắm
+
+- Mỗi lần đập lại khối giữa ngắm một điểm khác trên cùng khối (giữa mặt → 2 góc chéo → 2 góc kia → …; nhát 3x3 thì chỉ các điểm trên 2 mặt
+  cùng trục với lát để vẫn phá đúng mặt phẳng 3x3, nhát lẻ thì mọi mặt). Ngắm 6 tick chưa trúng điểm nào thì đổi sang điểm khác.
+- `StrikeTask` (vét sót, phá đường…) đập lại một khối đã hỏng / ngắm mãi không trúng cũng đổi điểm ngắm.
+
+### 2. Không đứng im ở "Đập lại khối giữa … · đập"
+
+- Nguyên nhân (dựng lại được trong gametest): khối giữa hiện lại mà từ chỗ đứng **không nhìn thấy** (bị khối giữa của lát gần hơn che, hay
+  đang đứng trên mặt 3x3 của nó) → ngắm mãi không trúng, 3 giây sau bỏ, tick sau lại tạo đúng việc đó. Sỏi/cát rơi vào ("lần 0") còn
+  không tính lần nên lặp vô hạn.
+- Nay: khối gần người / nhìn thấy được xử lý trước; không nhìn thấy, đứng trên mặt 3x3 của nó, hay ngắm hết các điểm không trúng → **đi
+  vòng** tới chỗ nhìn thấy rồi đập (tìm chỗ đứng quanh khối, không có thì đào đường tới sát khối). Lần nào cũng tính, kể cả sỏi rơi vào;
+  thang lùi/ngang tính từ chỗ đứng lúc đập hỏng.
+
+### 3. Bị chặn thì đi vòng
+
+- Lát đang đào bị che: như cũ đập khối chắn mặt hàng; không có khối nào để đập thì đi vào làn của lát (vừa đi vừa đào), rồi phá đúng khối
+  chắn tia nhìn tới mặt lát, vẫn không được thì đi vòng (chỗ đứng khác nhìn thấy lát, hoặc đào đường tới sát nó). Đi vòng 3 lần chưa được
+  thì để lát đó vét cuối tầng, đào tiếp. Vòng đầu chờ đồng bộ ghost như cũ, các vòng sau của cùng lát làm ngay (trước đây mỗi vòng đứng
+  chờ hơn 1 giây).
+
+### 4. Không dừng
+
+- 1 phút không có khối nào **được server giữ vỡ** (đập vỡ rồi bị trả lại không tính) → tự làm lại, lần lượt: làm lại kế hoạch tầng + đồng
+  bộ ghost quanh người → đi tới chỗ khác trong tầng rồi làm lại → vào lại tầng; lặp mãi. Trước đây 2 phút làm lại kế hoạch, **6 phút thì
+  dừng**.
+- Một ô hỏng cộng dồn 15 lần (server trả lại mãi / không tới được) → bỏ qua ô đó, xong tầng rồi đào tiếp (cuối tầng báo "bỏ qua N ô").
+  Trước đây đập mãi một khối và tầng không bao giờ xong.
+- Không dừng nữa, thay bằng làm lại / chờ rồi tự chạy tiếp: 20 việc liền hỏng, không vào được góc nào của tầng, lỗi lặp lại (nghỉ 5 giây),
+  việc hỏng "nặng" như Order chưa giao khối kê (thử lại sau 30 giây), máu ≤ 2 tim (ăn rồi đứng hồi máu, đủ máu đào tiếp), không thấy cúp
+  trong túi (5 giây xem lại một lần), cúp sắp vỡ mà chưa có bình XP (không đào cho vỡ cúp, mỗi phút thử mua/lấy XP lại).
+- Vẫn dừng: nhấn J, rời thế giới, nhân vật chết, chưa chọn vùng / placement.
+
+### Kiểm thử
+
+- Gametest thêm 5 ca; `Fake3x3Pickaxe` thêm ô 3x3 không phá kèm và đặt lại khối sau N tick; ghi cả điểm trúng trên khối mỗi nhát.
+  Cùng bộ kiểm thử trên 1.14.3 và 1.14.4 (tick = 1/20 giây):
+
+| Ca | 1.14.3 | 1.14.4 |
+|---|---|---|
+| K: khối giữa bị trả lại 2 lần — điểm trúng trên khối | (0,5 0,5) cả 3 nhát | (0,5 0,5) → (0,3 0,3) → (0,7 0,7) |
+| K2: bị trả lại 6 lần | 6 nhát cùng một điểm | 6 điểm khác nhau, 251 tick (trước 270) |
+| K4: 2 khối giữa hiện lại, khối gần che khối xa | 475 tick, **đứng im ở "Đập lại khối giữa … lần 1 · đập"** | **212 tick**, đi vòng, không đứng im |
+| K5: sỏi rơi vào chỗ khối giữa (khối dưới bị 3x3 bỏ sót) | 220 tick | 219 tick |
+| K6: khối giữa server không bao giờ cho phá | sau 2400 tick vẫn đập mãi khối đó, tầng không xong (6 phút thì dừng) | **452 tick**: bỏ qua ô đó, xong khung |
+| K7: đang đào bị ép "kẹt" 3 lần (làm lại / đi chỗ khác / vào lại tầng) | — | 293 tick, đào sạch |
+| K8: bedrock giữa hàng che kín lát sau | 729 tick, đứng im ≥ 3 giây | **460 tick**, không đứng im |
+| I: đào trọn khung 15x6x15 có sỏi | 1678 tick | 1679 tick |
+| J4: rãnh cắt ngang lối vào khung | 502 tick | 502 tick |
+
+- Toàn bộ 22 ca A–K8: 76/76 phép đạt. `MovementRegression` 29, `StrikeRegression` 7 phép đạt.
+
 ## 1.14.3
 
 Theo 2 lỗi người dùng báo (kèm ảnh nhân vật ngồi sát mép rãnh): **ngồi im sát mép rãnh nhiều phút** và **đang đào hàng thì không đập khối

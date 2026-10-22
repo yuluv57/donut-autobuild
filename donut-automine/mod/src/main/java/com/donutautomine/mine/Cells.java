@@ -280,6 +280,29 @@ public final class Cells {
       return var3 <= 0.0F ? 600.0 : Math.ceil(1.0 / var3);
    }
 
+   /**
+    * 1.14.4: mọi điểm trên mặt var3 của khối var2 nhìn thấy được từ var1 trong tầm var4 (aligned = cùng trục mặt để cúp 3x3 phá đúng mặt
+    * phẳng của lát). Thử lại thì ngắm điểm khác trên cùng khối thay vì cứ một điểm.
+    */
+   public static List<Vec3d> facePoints(MinecraftClient var0, Vec3d var1, BlockPos var2, Direction var3, double var4, boolean var6) {
+      ArrayList<Vec3d> var7 = new ArrayList<>();
+      Vec3d var8 = Vec3d.of(var3.getVector());
+
+      for (Box var10 : outlineBoxes(var0, var2)) {
+         for (double[] var14 : FACE_POINTS) {
+            Vec3d var15 = outlineFacePoint(var2, var10, var3, var14[0], var14[1]);
+            if (var1.squaredDistanceTo(var15) <= var4 * var4
+               && var15.subtract(var1).dotProduct(var8) < -0.001
+               && (!var6 || BreakGeometry.aligned(var1, var15, var3))
+               && rayHits(var0, var1, var15, var2, var3)) {
+               var7.add(var15);
+            }
+         }
+      }
+
+      return var7;
+   }
+
    public static Vec3d drillFacePoint(MinecraftClient var0, Vec3d var1, BlockPos var2, Direction var3, double var4) {
       Vec3d var6 = Vec3d.of(var3.getVector());
 

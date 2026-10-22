@@ -5,7 +5,9 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.Set;
 import net.fabricmc.api.ModInitializer;
+import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.minecraft.block.entity.BlockEntity;
 import net.fabricmc.fabric.api.event.player.PlayerBlockBreakEvents;
 import net.minecraft.block.BlockState;
@@ -26,6 +28,11 @@ public final class Fake3x3Pickaxe implements ModInitializer {
    public static final Map<BlockPos, Integer> reject = new ConcurrentHashMap<>();
    /** ô → số lần nữa server cho vỡ (cả 3x3) rồi đặt lại riêng khối đó (khối giữa "vỡ rồi hiện lại") */
    public static final Map<BlockPos, Integer> restore = new ConcurrentHashMap<>();
+   /** ô mà nhát 3x3 không phá kèm (server bỏ sót) — chỉ vỡ khi đập thẳng vào */
+   public static final Set<BlockPos> keep = ConcurrentHashMap.newKeySet();
+   /** ô → số tick sau khi vỡ thì server đặt lại khối đó (1 lần) */
+   public static final Map<BlockPos, Integer> restoreLater = new ConcurrentHashMap<>();
+   private static final List<Object[]> pending = Collections.synchronizedList(new ArrayList<>());
    /** mọi nhát phá của người chơi (không tính 8 khối 3x3 kéo theo): {ô, x, z, đang ngồi, bị huỷ} */
    public static final List<Object[]> attempts = Collections.synchronizedList(new ArrayList<>());
 
@@ -33,6 +40,19 @@ public final class Fake3x3Pickaxe implements ModInitializer {
    public void onInitialize() {
       PlayerBlockBreakEvents.BEFORE.register(Fake3x3Pickaxe::beforeBreak);
       PlayerBlockBreakEvents.AFTER.register(Fake3x3Pickaxe::afterBreak);
+      ServerTickEvents.END_SERVER_TICK.register(server -> {
+         synchronized (pending) {
+            pending.removeIf(o -> {
+               o[2] = (Integer)o[2] - 1;
+               if ((Integer)o[2] > 0) {
+                  return false;
+               }
+
+               ((World)o[3]).setBlockState((BlockPos)o[0], (BlockState)o[1]);
+               return true;
+            });
+         }
+      });
    }
 
    static boolean beforeBreak(World world, PlayerEntity player, BlockPos pos, BlockState state, BlockEntity entity) {
@@ -46,7 +66,9 @@ public final class Fake3x3Pickaxe implements ModInitializer {
          reject.put(pos.toImmutable(), n - 1);
       }
 
-      attempts.add(new Object[]{pos.toImmutable(), player.getX(), player.getZ(), player.isSneaking(), cancel || restore.getOrDefault(pos, 0) > 0});
+      // điểm trúng trên khối (server tự bắn tia theo hướng nhìn) → kiểm tra mỗi lần đập lại có ngắm điểm khác không
+      net.minecraft.util.hit.HitResult hit = player.raycast(6.0, 1.0F, false);
+      attempts.add(new Object[]{pos.toImmutable(), player.getX(), player.getZ(), player.isSneaking(), cancel || restore.getOrDefault(pos, 0) > 0, hit.getPos()});
       return !cancel;
    }
 
@@ -54,6 +76,11 @@ public final class Fake3x3Pickaxe implements ModInitializer {
       try {
          breakPlane(world, player, pos);
       } finally {
+         Integer later = restoreLater.remove(pos);
+         if (!world.isClient && later != null) {
+            pending.add(new Object[]{pos.toImmutable(), state, later, world});
+         }
+
          Integer n = restore.get(pos);
          if (!world.isClient && n != null && n > 0) {
             restore.put(pos.toImmutable(), n - 1);
@@ -80,7 +107,7 @@ public final class Fake3x3Pickaxe implements ModInitializer {
                };
                BlockState s = world.getBlockState(p);
                float h = s.getHardness(world, p);
-               if (!p.equals(pos) && !s.isAir() && h >= 0.0F && h <= 50.0F && s.getFluidState().isEmpty()) {
+               if (!p.equals(pos) && !keep.contains(p) && !s.isAir() && h >= 0.0F && h <= 50.0F && s.getFluidState().isEmpty()) {
                   world.breakBlock(p, true, player);
                }
             }
