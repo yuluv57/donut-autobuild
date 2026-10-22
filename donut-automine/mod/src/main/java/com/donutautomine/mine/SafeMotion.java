@@ -38,6 +38,22 @@ public final class SafeMotion {
       }
    }
 
+   /**
+    * 1.14.3: ngồi giữ mép chỉ khi đang trôi về chỗ hụt chân (vị trí sắp tới còn dưới 2 góc chân có sàn). Đứng yên sát mép thì không rơi
+    * nên không ngồi — trước đây chỉ cần 1 góc chân lơ lửng trên hố là ngồi, mà ngồi thì cúp 3x3 chỉ phá 1 khối và nhát đập hàng
+    * (chờ đứng thẳng) không bao giờ ra → bot ngồi im mãi sát mép rãnh, hoặc đập lẻ từng khối quanh khối giữa.
+    */
+   public static boolean edgeSneak(MinecraftClient var0) {
+      if (!overhanging(var0)) {
+         return false;
+      } else {
+         int var1 = (int)Math.floor(var0.player.getY() + 0.02);
+         double var2 = var0.player.getX() + var0.player.getVelocity().x * 3.0;
+         double var4 = var0.player.getZ() + var0.player.getVelocity().z * 3.0;
+         return !supportedAny(var0, var2, var4, var1 - 1, var1);
+      }
+   }
+
    /** 1.14.2: ít nhất 2 trong 4 góc chân trên sàn → không rơi (vanilla chỉ cần 1, giữ dư 1 góc phòng lệch) */
    public static boolean supportedAny(MinecraftClient var0, double var1, double var3, int var5, int var6) {
       int var7 = 0;

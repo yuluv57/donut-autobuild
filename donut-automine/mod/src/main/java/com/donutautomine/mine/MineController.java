@@ -208,6 +208,10 @@ public final class MineController {
       return this.task == null ? "—" : this.task.label();
    }
 
+   /** chỉ để kiểm thử: dòng chẩn đoán của việc đang chạy (gametest bật debugTrace) */
+   public static boolean debugTrace;
+   public String debugLine = "";
+
    public double strikesPerMinute() {
       if (this.startedAt <= 0L) {
          return 0.0;
@@ -274,6 +278,7 @@ public final class MineController {
             this.skipped.clear();
             this.fails.clear();
             this.waterDams.clear();
+            this.clearMiddleTries();
             this.waterReplacements.clear();
             this.retryAt.clear();
             if (this.regionKey().equals(this.config.waterDamRegion) && this.config.waterDamCells != null) {
@@ -385,6 +390,7 @@ public final class MineController {
       this.skipped.clear();
       this.fails.clear();
       this.strikes = 0;
+      this.clearMiddleTries();
       this.cleared = 0;
       this.retryAt.clear();
       this.layerQuietSince = this.finalQuietSince = -1;
@@ -779,6 +785,21 @@ public final class MineController {
       AutoMineMod.LOGGER.info("[AutoMine] Thử lại ô {} sau {} lần: {}", new Object[]{var1.toShortString(), var3, var2});
    }
 
+   /** 1.14.3: số lần đã đập lại khối giữa lát bị server trả lại / vị trí đứng lúc phát hiện lần đầu (gốc của thang đổi góc) */
+   private final Map<BlockPos, Integer> middleTries = new HashMap<>();
+   private final Map<BlockPos, Vec3d> middleBase = new HashMap<>();
+   /** 1.14.3: khối giữa thử đủ 5 lần vẫn hiện lại → cả mặt 3x3 của lát đó để vét cuối tầng, hàng đào tiếp lát kế */
+   private final Set<BlockPos> middleDeferred = new HashSet<>();
+   /** 1.14.3: khối giữa các lát hàng đã đi qua lúc thấy trống (vừa đập vỡ / sẵn trống) — hiện lại mới là bị trả lại, cần đập lại */
+   private final Set<BlockPos> middleSeenClear = new HashSet<>();
+
+   private void clearMiddleTries() {
+      this.middleTries.clear();
+      this.middleBase.clear();
+      this.middleDeferred.clear();
+      this.middleSeenClear.clear();
+   }
+
    /** 1.14.2: ô sẽ vỡ theo nhát 3x3 vừa đập (chờ server báo) → tới hạn này không đập lại / không đi tìm chỗ đứng để đập */
    private final Map<BlockPos, Integer> expected = new HashMap<>();
 
@@ -908,6 +929,41 @@ public final class MineController {
          ? this.mc.player.raycast(this.mc.player.getBlockInteractionRange(), 1.0F, false) instanceof BlockHitResult var4
             && BreakGeometry.aligned(this.mc.player.getEyePos(), var4.getPos(), var2)
          : false;
+   }
+
+   /**
+    * 1.14.3: đứng yên mà dưới 2 góc chân có sàn (vd. đáp lệch sát mép rãnh) → nhích về tâm ô sàn gần nhất dưới chân để đứng thẳng đập 3x3,
+    * không ngồi im chờ. Trả true khi đang nhích.
+    */
+   boolean recentre() {
+      if (this.mc.player != null
+         && this.mc.player.isOnGround()
+         && !(this.mc.player.getVelocity().horizontalLength() > 0.03)
+         && SafeMotion.edgeSneak(this.mc)) {
+         int var1 = (int)Math.floor(this.mc.player.getY() + 0.02) - 1;
+         double var2 = Double.NaN;
+         double var4 = 0.0;
+         double var6 = Double.MAX_VALUE;
+
+         for (double var10 : new double[]{-0.28, 0.28}) {
+            for (double var14 : new double[]{-0.28, 0.28}) {
+               BlockPos var16 = BlockPos.ofFloored(this.mc.player.getX() + var10, var1, this.mc.player.getZ() + var14);
+               double var17 = Math.hypot(var16.getX() + 0.5 - this.mc.player.getX(), var16.getZ() + 0.5 - this.mc.player.getZ());
+               if (Cells.floor(this.mc, var16) && var17 < var6) {
+                  var6 = var17;
+                  var2 = var16.getX() + 0.5;
+                  var4 = var16.getZ() + 0.5;
+               }
+            }
+         }
+
+         if (!Double.isNaN(var2)) {
+            Keys.drive(this.mc, var2, var4, 0.1, true);
+            return true;
+         }
+      }
+
+      return false;
    }
 
    private boolean protectedFooting(BlockPos var1, Direction var2) {
@@ -1323,6 +1379,7 @@ public final class MineController {
                      this.laneSweep = null;
                      this.recentStrikes.clear();
                      this.fails.clear();
+                     this.clearMiddleTries();
                      this.avoid.clear();
                      this.badPits.clear();
                      if (this.layer < 0) {
@@ -1773,7 +1830,22 @@ public final class MineController {
       } else {
          BlockPos var4 = this.feet();
          List<BlockPos> var5 = new ArrayList<>(var1);
-         var5.removeIf(var1x -> !this.retryReady(var1x) || this.waterDams.contains(var1x) || this.expectedGone(var1x));
+         // 1.14.3: khối đang chờ thử lại (server vừa trả lại) → không đập lẻ khối xung quanh nó; tới lượt thì đập 3x3 vào chính nó
+         List<BlockPos> var42 = new ArrayList<>();
+
+         for (BlockPos var44 : var1) {
+            if (!this.retryReady(var44) && !this.waterDams.contains(var44)) {
+               var42.add(var44);
+            }
+         }
+
+         var5.removeIf(
+            var2x -> !this.retryReady(var2x)
+               || this.waterDams.contains(var2x)
+               || this.expectedGone(var2x)
+               || var42.stream()
+                  .anyMatch(var1x -> Math.abs(var1x.getX() - var2x.getX()) <= 1 && Math.abs(var1x.getY() - var2x.getY()) <= 1 && Math.abs(var1x.getZ() - var2x.getZ()) <= 1)
+         );
          var5.sort(Comparator.comparingDouble(var1x -> var1x.getSquaredDistance(this.mc.player.getPos())));
          if (var5.size() > 32) {
             var5 = var5.subList(0, 32);
@@ -1798,7 +1870,7 @@ public final class MineController {
 
             for (Direction var22 : Direction.values()) {
                for (boolean var26 : new boolean[]{false, true}) {
-                  if (var26 || !Boolean.FALSE.equals(this.threeByThree) && this.fails.getOrDefault(var18, 0) <= 0) {
+                  if (var26 || !Boolean.FALSE.equals(this.threeByThree) && this.fails.getOrDefault(var18, 0) < 3) {
                      List<BlockPos> var27 = this.cleanupPlane(var18, var22, var26, var3);
                      if (var27 != null) {
                         double var33 = StrikeScore.score(
@@ -3441,6 +3513,60 @@ public final class MineController {
          }
       }
 
+      /**
+       * 1.14.3: khối giữa của 2 lát vừa qua hiện lại (server trả lại, ghost, sỏi rơi) → đập lại ngay theo thang đổi góc (MiddleRetry),
+       * không bao giờ bỏ qua để đập khối xung quanh; thử đủ 5 lần vẫn hiện lại thì để dành cuối tầng, hàng đào tiếp.
+       */
+      private MineController.Task middleBack() {
+         for (int var1 = Math.min(this.idx, this.run.size()) - 1; var1 >= Math.max(0, this.idx - 2); var1--) {
+            LayerPlan.Slice var2 = this.run.get(var1);
+            BlockPos var3 = var2.center();
+            if (MineController.this.region.inside(var3)
+               && Cells.loaded(MineController.this.mc, var3)
+               && Cells.mineable(MineController.this.mc, var3)
+               && !MineController.this.skipped.contains(var3)
+               && !MineController.this.middleDeferred.contains(var3)
+               && !MineController.this.waterDams.contains(var3)
+               && (MineController.this.middleSeenClear.contains(var3) || Cells.state(MineController.this.mc, var3).getBlock() instanceof FallingBlock)) {
+               boolean var4 = Cells.state(MineController.this.mc, var3).getBlock() instanceof FallingBlock;
+               int var5 = var4 ? 0 : MineController.this.middleTries.getOrDefault(var3, 0) + 1;
+               if (var5 > 5) {
+                  // cả mặt 3x3 của lát đó để cuối tầng: không đập lẻ khối xung quanh khi bị chắn tầm nhìn tới lát kế
+                  for (BlockPos var6 : Cells.plane(var3, var2.face())) {
+                     MineController.this.middleDeferred.add(var6.toImmutable());
+                  }
+
+                  MineController.this.middleBase.remove(var3);
+                  MineController.this.fails.remove(var3);
+                  MineController.this.retryAt.remove(var3);
+                  AutoMineMod.LOGGER.info("[AutoMine] Khối giữa {}: đập 5 lần vẫn hiện lại → để vét cuối tầng, đào lát kế", var3.toShortString());
+               } else {
+                  if (!var4) {
+                     MineController.this.middleTries.put(var3.toImmutable(), var5);
+                  }
+
+                  return MineController.this.new MiddleRetry(var3, this.rowFace(var3, var2.face()), var5);
+               }
+            }
+         }
+
+         return null;
+      }
+
+      /** 1.14.3: ô đáp bên kia hố (cách 2..4 ô) còn khối nhưng là khối sắp vỡ theo nhát 3x3 vừa đập (chờ server báo) */
+      private boolean landingPending(Direction var1) {
+         BlockPos var2 = MineController.this.feet();
+
+         for (int var3 = 2; var3 <= 4; var3++) {
+            BlockPos var4 = var2.offset(var1, var3);
+            if (MineController.this.expectedGone(var4) || MineController.this.expectedGone(var4.up())) {
+               return true;
+            }
+         }
+
+         return false;
+      }
+
       private List<BlockPos> planeLeft(LayerPlan.Slice var1) {
          ArrayList var2 = new ArrayList();
          int var3 = MineController.this.region.floor(MineController.this.layer);
@@ -3487,6 +3613,10 @@ public final class MineController {
                var2 = this.lp.slices.get(this.base + var5);
             }
 
+            if (MineController.this.middleDeferred.contains(((LayerPlan.Slice)var2).center())) {
+               continue;
+            }
+
             for (BlockPos var7 : Cells.plane(((LayerPlan.Slice)var2).center(), ((LayerPlan.Slice)var2).face())) {
                if (MineController.this.region.inside(var7)
                   && var7.getY() >= var4
@@ -3506,7 +3636,8 @@ public final class MineController {
             if (MineController.this.region.inside(var11)
                && var11.getY() >= var4
                && Cells.mineable(MineController.this.mc, var11)
-               && !MineController.this.skipped.contains(var11)) {
+               && !MineController.this.skipped.contains(var11)
+               && !MineController.this.middleDeferred.contains(var11)) {
                var3.add(var11.toImmutable());
             }
          }
@@ -3591,6 +3722,14 @@ public final class MineController {
                   );
                return MineController.Result.DONE;
             } else {
+               MineController.Task var27 = this.middleBack();
+               if (var27 != null) {
+                  this.stopBreaking();
+                  Keys.releaseMove(MineController.this.mc);
+                  this.sub = var27;
+                  return MineController.Result.RUNNING;
+               }
+
                BlockPos var2;
                while (
                   this.idx < this.run.size()
@@ -3598,6 +3737,10 @@ public final class MineController {
                      && (MineController.this.skipped.contains(var2) || !Cells.mineable(MineController.this.mc, var2))
                ) {
                   // 1.14.2: khối thừa quanh lát đã trống để dành vét một lượt cuối tầng; chỉ phá ngay sỏi/cát vừa rơi lại vào hàng
+                  if (!Cells.mineable(MineController.this.mc, var2)) {
+                     MineController.this.middleSeenClear.add(var2.toImmutable());
+                  }
+
                   List<BlockPos> var4 = this.planeLeft(this.run.get(this.idx));
                   var4.removeIf(var0 -> !(Cells.state(MineController.this.mc, var0).getBlock() instanceof FallingBlock));
                   MineController.Task var5 = var4.isEmpty() ? null : MineController.this.chooseStrike(var4, "sỏi/cát rơi lại vào hàng", false);
@@ -3632,6 +3775,11 @@ public final class MineController {
                      return MineController.Result.RUNNING;
                   } else {
                      Keys.stand(MineController.this.mc);
+                     if (BotInput.INSTANCE.sneaking && MineController.this.recentre()) {
+                        this.stopBreaking();
+                        return MineController.Result.RUNNING;
+                     }
+
                      if (MineController.this.damInPlane(var28, var30)) {
                         this.stopBreaking();
                         this.sub = MineController.this.new StrikeTask(var28, var30, "đào sát đập chắn nước", true);
@@ -3649,6 +3797,7 @@ public final class MineController {
                            this.breakTicks++;
                            this.offTicks = 0;
                            if (!Cells.mineable(MineController.this.mc, var28)) {
+                              MineController.this.middleSeenClear.add(var28.toImmutable());
                               MineController.this.strikes++;
                               this.done++;
                               MineController.this.recentStrikes.put(var28, MineController.this.ticks);
@@ -3667,6 +3816,10 @@ public final class MineController {
                                           || !Cells.mineable(MineController.this.mc, this.run.get(this.idx).center())
                                     )
                               ) {
+                                 if (!Cells.mineable(MineController.this.mc, this.run.get(this.idx).center())) {
+                                    MineController.this.middleSeenClear.add(this.run.get(this.idx).center().toImmutable());
+                                 }
+
                                  this.idx++;
                               }
 
@@ -3677,6 +3830,12 @@ public final class MineController {
                         } else if (this.breakTicks > 0 && ++this.offTicks > 4) {
                            this.stopBreaking();
                            this.offTicks = 0;
+                        }
+
+                        if (debugTrace) {
+                           MineController.this.debugLine = "row tgt=" + var28.toShortString() + " face=" + var30 + " cross=" + MineController.this.drillCrosshairOn(var28, var30)
+                              + " foot=" + MineController.this.protectedFooting(var28, var30) + " sneakFree=" + BotInput.INSTANCE.sneakFree + " stable=" + MineController.this.rotationStableTicks
+                              + " idle=" + this.idle + " blocked=" + this.blocked + " brk=" + this.breakTicks;
                         }
 
                         Object var31 = this.idx < this.run.size() ? this.run.get(this.idx) : var2x;
@@ -3708,7 +3867,11 @@ public final class MineController {
                                        MineController.this.mc, MineController.this.feet(), null, var3, var3, false, false, MineController.this.avoid
                                     )
                                     .jumpTarget(MineController.this.feet(), var9);
-                                 if (var37 != null && this.jumpFails < 2 && MineController.this.region.insideColumn(var37.getX(), var37.getZ())) {
+                                 // 1.14.3: đang đập dở lát với tới được từ đây → đập xong rồi nhảy (nhảy giữa chừng thì mất công đập)
+                                 if (var37 != null
+                                    && this.jumpFails < 2
+                                    && !(var10 != null && this.breakTicks > 0)
+                                    && MineController.this.region.insideColumn(var37.getX(), var37.getZ())) {
                                     MineController.JumpTask var38 = MineController.this.new JumpTask(MineController.this.feet(), var37);
                                     var38.straightAfter = true;
                                     this.sub = var38;
@@ -3735,16 +3898,39 @@ public final class MineController {
                                     }
                                  }
 
-                                 Keys.releaseMove(MineController.this.mc);
-                                 this.fill = MineController.this.new PlugTask(var19.down(), "lấp hố trên sàn", true);
-                                 return MineController.Result.RUNNING;
-                              }
+                                 // 1.14.3: chưa nhảy được vì ô đáp còn khối (lát bên kia chưa đào, hoặc nhát 3x3 vừa rồi chưa được server báo vỡ nốt)
+                                 // mà lát đang đào vẫn với tới từ đây → đứng đập tiếp, ô đáp trống thì nhảy; trước đây lấp rãnh ngay tick đó
+                                 if (var10 == null && !this.landingPending(var9)) {
+                                    Keys.releaseMove(MineController.this.mc);
+                                    this.fill = MineController.this.new PlugTask(var19.down(), "lấp hố trên sàn", true);
+                                    return MineController.Result.RUNNING;
+                                 }
 
-                              double var20 = var32.getX() + 0.5 - var9.getOffsetX() * 1.9;
-                              double var22 = var32.getZ() + 0.5 - var9.getOffsetZ() * 1.9;
-                              Keys.drive(MineController.this.mc, var20, var22, 0.12, true);
+                                 Keys.releaseMove(MineController.this.mc);
+                              } else {
+                                 double var20 = var32.getX() + 0.5 - var9.getOffsetX() * 1.9;
+                                 double var22 = var32.getZ() + 0.5 - var9.getOffsetZ() * 1.9;
+                                 Keys.drive(MineController.this.mc, var20, var22, 0.12, true);
+                              }
                            } else {
                               Keys.releaseMove(MineController.this.mc);
+                           }
+
+                           if (var10 == null
+                              && MineController.this.mc.player.isOnGround()
+                              && var11 <= 3.3
+                              && MineController.this.middleDeferred.contains(var32.offset(var33))) {
+                              // 1.14.3: lát kế bị mặt 3x3 để dành cuối tầng che kín → các lát sau cũng không với được từ phía này;
+                              // kết thúc hàng, phần còn lại vét cuối tầng (trước đây thử từng lát, mỗi lát đứng chờ cả chục giây)
+                              AutoMineMod.LOGGER.info("[AutoMine] Hàng {}: {} lát sau khối giữa để dành bị che → để vét cuối tầng", this.strip + 1, this.run.size() - this.idx);
+                              this.stopBreaking();
+                              Keys.releaseMove(MineController.this.mc);
+                              this.idx = this.run.size();
+                              if (!this.reverse) {
+                                 this.lp.index = Math.max(this.lp.index, this.base + this.idx);
+                              }
+
+                              return MineController.Result.RUNNING;
                            }
 
                            if (var10 == null && MineController.this.mc.player.isOnGround() && var11 <= 3.3) {
@@ -3997,6 +4183,200 @@ public final class MineController {
       DONE;
    }
 
+   /**
+    * 1.14.3: khối giữa của lát vừa đập vỡ rồi hiện lại (server trả lại / ghost) → đổi góc rồi đập lại ngay, không đụng khối xung quanh:
+    * lần 1 lùi 0,5 ô (ra xa mặt đập), lần 2 lùi thêm 0,5, lần 3 bước ngang trái 0,5, lần 4 ngang phải 0,5, lần 5 ngồi đập lẻ riêng khối giữa.
+    * Sau 5 lần vẫn hiện lại thì RowTask để dành nó tới cuối tầng. Sỏi/cát rơi vào chỗ khối giữa (lần 0) thì đập tại chỗ, không tính lần.
+    */
+   private final class MiddleRetry extends MineController.Task {
+      final BlockPos c;
+      final Direction f;
+      final int attempt;
+      final boolean single;
+      Vec3d goal;
+      int phase;
+      int phaseAge;
+      int brokeAt;
+
+      MiddleRetry(BlockPos nullx, Direction nullxx, int nullxxx) {
+         this.c = nullx.toImmutable();
+         this.f = nullxx;
+         this.attempt = nullxxx;
+         this.single = nullxxx >= 5;
+         Vec3d var4 = MineController.this.mc.player.getPos();
+         Vec3d var5 = nullxxx == 0 ? var4 : MineController.this.middleBase.computeIfAbsent(this.c, var1x -> var4);
+         double var6 = this.f.getOffsetX();
+         double var8 = this.f.getOffsetZ();
+         // trái của hướng nhìn (nhìn ngược pháp tuyến mặt đập)
+         double var10 = -var8;
+         double var12 = var6;
+         double[] var14 = switch (nullxxx) {
+            case 1 -> new double[]{0.5, 0.0};
+            case 2 -> new double[]{1.0, 0.0};
+            case 3 -> new double[]{1.0, 0.5};
+            case 4 -> new double[]{1.0, -0.5};
+            default -> null;
+         };
+         if (var14 != null && this.f.getAxis() != Axis.Y) {
+            Vec3d var15 = new Vec3d(var5.x + var6 * var14[0] + var10 * var14[1], var4.y, var5.z + var8 * var14[0] + var12 * var14[1]);
+            if (this.standOk(var15)) {
+               this.goal = var15;
+            } else {
+               AutoMineMod.LOGGER.info("[AutoMine] Khối giữa {} lần {}: chỗ đổi góc {} không đứng được → đập lại tại chỗ", new Object[]{
+                  this.c.toShortString(), nullxxx, String.format("%.2f %.2f", var15.x, var15.z)
+               });
+            }
+         }
+
+         AutoMineMod.LOGGER.info("[AutoMine] Khối giữa {} hiện lại → đập lại lần {}{}", new Object[]{
+            this.c.toShortString(), nullxxx, this.single ? " (ngồi đập lẻ)" : (this.goal != null ? String.format(" từ %.2f %.2f", this.goal.x, this.goal.z) : " tại chỗ")
+         });
+      }
+
+      /** chỗ đứng mới: thân người trống, ít nhất 2 góc chân có sàn, mặt đập vẫn trong tầm với */
+      private boolean standOk(Vec3d var1) {
+         int var2 = (int)Math.floor(var1.y + 0.02);
+         BlockPos var3 = BlockPos.ofFloored(var1.x, var2, var1.z);
+         if (!Cells.clearBody(MineController.this.mc, var3) || MineController.this.avoid.contains(var3)) {
+            return false;
+         } else {
+            for (double var5 : new double[]{-0.3, 0.3}) {
+               for (double var8 : new double[]{-0.3, 0.3}) {
+                  if (!Cells.clearBody(MineController.this.mc, BlockPos.ofFloored(var1.x + var5, var2, var1.z + var8))) {
+                     return false;
+                  }
+               }
+            }
+
+            Vec3d var11 = new Vec3d(var1.x, var1.y + MineController.this.mc.player.getStandingEyeHeight(), var1.z);
+            return SafeMotion.supportedAny(MineController.this.mc, var1.x, var1.z, var2 - 1, var2)
+               && var11.distanceTo(Cells.faceCenter(this.c, this.f)) <= MineController.this.reach() - 0.3;
+         }
+      }
+
+      @Override
+      String label() {
+         String[] var1 = new String[]{"đổi chỗ", "đứng vững", "đập", "chờ server"};
+         return "Đập lại khối giữa " + this.c.toShortString() + " lần " + this.attempt + (this.single ? " (lẻ)" : "") + " · " + var1[Math.min(this.phase, 3)];
+      }
+
+      @Override
+      boolean interruptible() {
+         return this.phase != 2;
+      }
+
+      private void to(int var1) {
+         this.phase = var1;
+         this.phaseAge = 0;
+      }
+
+      @Override
+      MineController.Result tick() {
+         this.age++;
+         this.phaseAge++;
+         if (this.phase < 3 && !Cells.mineable(MineController.this.mc, this.c)) {
+            return MineController.Result.DONE;
+         } else if (this.age > 200) {
+            AutoMineMod.LOGGER.info("[AutoMine] Khối giữa {} lần {}: quá 10 giây chưa đập được", this.c.toShortString(), this.attempt);
+            return MineController.Result.DONE;
+         } else if (!MineController.this.equipPick()) {
+            Keys.releaseMove(MineController.this.mc);
+            return MineController.Result.RUNNING;
+         } else {
+            BotInput var1 = BotInput.INSTANCE;
+            Vec3d var2 = MineController.this.mc.player.getEyePos();
+            Vec3d var3 = this.single
+               ? MineController.this.miningPoint(var2, this.c, this.f, true)
+               : Cells.drillFacePoint(MineController.this.mc, var2, this.c, this.f, MineController.this.reach());
+            MineController.this.look(var3 != null ? var3 : Cells.faceCenter(this.c, this.f));
+            MineController.this.status = this.label();
+            switch (this.phase) {
+               case 0:
+                  if (this.goal != null
+                     && this.phaseAge <= 30
+                     && Math.hypot(this.goal.x - MineController.this.mc.player.getX(), this.goal.z - MineController.this.mc.player.getZ()) > 0.08) {
+                     // nhích 0,5 ô: đi ngồi cho chậm mà đúng chỗ (đi thường trôi quá 0,1–0,2 ô)
+                     var1.sneaking = true;
+                     Keys.drive(MineController.this.mc, this.goal.x, this.goal.z, 0.05, true);
+                     return MineController.Result.RUNNING;
+                  }
+
+                  Keys.releaseMove(MineController.this.mc);
+                  this.to(1);
+               case 1:
+                  // đứng vững (hết trôi) rồi mới đập: nhát lẻ thì ngồi hẳn, nhát 3x3 thì đứng thẳng
+                  Keys.releaseMove(MineController.this.mc);
+                  boolean var4 = !this.single && SafeMotion.edgeSneak(MineController.this.mc);
+                  if (var4 && MineController.this.recentre()) {
+                     var1.sneaking = true;
+                     return MineController.Result.RUNNING;
+                  }
+
+                  var1.sneaking = this.single || var4;
+                  if (var4
+                     || this.phaseAge < 12 && MineController.this.mc.player.getVelocity().horizontalLength() > 0.02
+                     || (this.single ? var1.sneakFree != 0 : var1.sneakFree < 1)) {
+                     return MineController.Result.RUNNING;
+                  }
+
+                  this.to(2);
+               case 2:
+                  var1.sneaking = this.single;
+                  boolean var5 = this.single
+                     ? MineController.this.rotationStableTicks >= 1 && MineController.this.crosshairOn(this.c, this.f)
+                     : MineController.this.drillCrosshairOn(this.c, this.f);
+                  if (var5
+                     && (this.single ? var1.sneakFree == 0 : var1.sneakFree >= 1)
+                     && !MineController.this.protectedFooting(this.single ? List.of(this.c) : Cells.plane(this.c, this.f))) {
+                     List<BlockPos> var6 = new ArrayList<>();
+                     if (!this.single) {
+                        int var7 = MineController.this.region.floor(MineController.this.layer);
+
+                        for (BlockPos var9 : Cells.plane(this.c, this.f)) {
+                           if (!var9.equals(this.c) && MineController.this.region.inside(var9) && var9.getY() >= var7 && Cells.mineable(MineController.this.mc, var9)) {
+                              var6.add(var9.toImmutable());
+                           }
+                        }
+                     }
+
+                     MineController.this.mc.interactionManager.updateBlockBreakingProgress(this.c, this.f);
+                     MineController.this.mc.player.swingHand(Hand.MAIN_HAND);
+                     if (!Cells.mineable(MineController.this.mc, this.c)) {
+                        MineController.this.strikes++;
+                        MineController.this.recentStrikes.put(this.c, MineController.this.ticks);
+                        MineController.this.deferCheck(this.c, this.single ? null : var6);
+                        this.brokeAt = MineController.this.ticks;
+                        this.to(3);
+                     }
+
+                     return MineController.Result.RUNNING;
+                  } else {
+                     if (this.phaseAge > 60) {
+                        AutoMineMod.LOGGER.info("[AutoMine] Khối giữa {} lần {}: không ngắm được mặt {}", new Object[]{this.c.toShortString(), this.attempt, this.f});
+                        return MineController.Result.DONE;
+                     }
+
+                     return MineController.Result.RUNNING;
+                  }
+               default:
+                  // chờ server: hiện lại thì trả về ngay (RowTask đổi góc lần kế), giữ được qua khoảng ping thì coi như xong
+                  Keys.releaseMove(MineController.this.mc);
+                  var1.sneaking = false;
+                  if (Cells.mineable(MineController.this.mc, this.c)) {
+                     return MineController.Result.DONE;
+                  } else if (MineController.this.ticks - this.brokeAt >= Math.min(MineController.this.settleTicks(), 4 + 2 * ServerSync.pingTicks(MineController.this.mc))) {
+                     AutoMineMod.LOGGER.info("[AutoMine] Khối giữa {}: lần {} vỡ hẳn", this.c.toShortString(), this.attempt);
+                     MineController.this.middleTries.remove(this.c);
+                     MineController.this.middleBase.remove(this.c);
+                     return MineController.Result.DONE;
+                  } else {
+                     return MineController.Result.RUNNING;
+                  }
+            }
+         }
+      }
+   }
+
    private final class StrikeTask extends MineController.Task {
       final BlockPos c;
       Direction f;
@@ -4027,9 +4407,10 @@ public final class MineController {
          this.f = nullxx;
          this.what = nullxxx;
          this.mayWalk = nullxxxx;
+         // 1.14.3: hỏng 1–2 lần vẫn đập 3x3 (đập lẻ khối giữa thì 8 khối quanh lại phải đập từng khối); hỏng từ 3 lần mới đập lẻ
          this.single = MineController.this.damInPlane(this.c, this.f)
             || Boolean.FALSE.equals(MineController.this.threeByThree)
-            || MineController.this.fails.getOrDefault(this.c, 0) > 0;
+            || MineController.this.fails.getOrDefault(this.c, 0) >= 3;
       }
 
       @Override
@@ -4049,14 +4430,18 @@ public final class MineController {
       }
 
       private boolean holdMiningPosture() {
-         if (!this.single && SafeMotion.overhanging(MineController.this.mc)) {
-            this.single = true;
-         }
-
+         // 1.14.3: sát mép vẫn đập 3x3 (đứng yên thì không rơi); trước đây cứ 1 góc chân lơ lửng là chuyển sang ngồi đập lẻ từng khối.
+         // Chỉ ngồi chờ khi đang trôi về chỗ hụt chân; hụt chân mà đứng yên thì nhích vào tâm ô sàn.
+         boolean var4 = !this.single && SafeMotion.edgeSneak(MineController.this.mc);
          Keys.releaseMove(MineController.this.mc);
          BotInput var1 = BotInput.INSTANCE;
-         var1.sneaking = this.single;
-         if (var1.playerInput.sneak() == this.single && (this.single ? var1.sneakFree == 0 : var1.sneakFree >= 1)) {
+         if (var4 && MineController.this.recentre()) {
+            var1.sneaking = true;
+         } else {
+            var1.sneaking = this.single || var4;
+         }
+
+         if (!var4 && var1.playerInput.sneak() == this.single && (this.single ? var1.sneakFree == 0 : var1.sneakFree >= 1)) {
             double var2 = MineController.this.mc.player.getEyePos().y;
             if (Double.isNaN(this.pointEyeY) || Math.abs(var2 - this.pointEyeY) > 1.0E-4) {
                this.point = MineController.this.miningPoint(MineController.this.mc.player.getEyePos(), this.c, this.f, this.single);

@@ -19,7 +19,7 @@ public final class Keys {
       BotInput.INSTANCE.clearMove();
       BotInput.INSTANCE.jumping = false;
       BotInput.INSTANCE.sprinting = false;
-      if (var0.player != null && SafeMotion.overhanging(var0)) {
+      if (var0.player != null && SafeMotion.edgeSneak(var0)) {
          BotInput.INSTANCE.sneaking = true;
       }
    }
@@ -41,7 +41,7 @@ public final class Keys {
    }
 
    public static void stand(MinecraftClient var0) {
-      BotInput.INSTANCE.sneaking = var0.player != null && SafeMotion.overhanging(var0);
+      BotInput.INSTANCE.sneaking = var0.player != null && SafeMotion.edgeSneak(var0);
       BotInput.INSTANCE.sprinting = false;
       if (var0.player != null && var0.player.isSprinting()) {
          var0.player.setSprinting(false);

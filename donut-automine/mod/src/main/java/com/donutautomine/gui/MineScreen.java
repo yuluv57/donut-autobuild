@@ -39,7 +39,7 @@ public final class MineScreen extends Screen {
    private int moveStep = 1;
 
    public MineScreen(MineConfig var1, MineController var2) {
-      super(Text.literal("Donut AutoMine 1.14.2"));
+      super(Text.literal("Donut AutoMine 1.14.3"));
       this.config = var1;
       this.controller = var2;
    }

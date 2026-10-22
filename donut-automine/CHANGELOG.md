@@ -1,5 +1,59 @@
 # Lịch sử sửa — donut-automine
 
+## 1.14.3
+
+Theo 2 lỗi người dùng báo (kèm ảnh nhân vật ngồi sát mép rãnh): **ngồi im sát mép rãnh nhiều phút** và **đang đào hàng thì không đập khối
+giữa mà đập khối xung quanh**. Cả hai cùng một gốc: chỉ cần 1 góc chân lơ lửng trên hố là bot **ngồi** (giữ mép), mà ngồi thì cúp 3x3
+chỉ phá 1 khối — nhát đập hàng chờ đứng thẳng mãi không ra (ngồi im), còn việc đập lẻ thì chuyển sang ngồi đập từng khối một.
+
+### 1. Không ngồi im sát mép, nhảy qua rãnh
+
+- Chỉ ngồi giữ mép khi **đang trôi** về chỗ hụt chân (vị trí sắp tới còn dưới 2 góc chân có sàn). Đứng yên sát mép thì không rơi nên
+  đứng thẳng đập 3x3 bình thường (`SafeMotion.edgeSneak`, dùng cho `Keys.stand` / `releaseMove`).
+- `StrikeTask` sát mép vẫn đập 3x3 (trước đây cứ chân lơ lửng là đổi sang ngồi đập lẻ). Đáp lệch còn dưới 2 góc chân có sàn mà đứng yên
+  → nhích vào tâm ô sàn rồi đập (`recentre`), không ngồi chờ.
+- Đang đào hàng gặp rãnh: trước đây nhảy/lấp **ngay tick khối giữa lát vỡ** — server chưa kịp báo 8 khối 3x3 còn lại vỡ nên ô đáp bên kia
+  còn "đá" → không nhảy được → **lấp rãnh**. Nay: ô đáp là khối sắp vỡ theo nhát vừa đập, hoặc lát đang đào vẫn với tới từ mép, thì đứng
+  đập tiếp (không đi, không lấp); ô đáp trống là nhảy. Đang đập dở lát với tới được thì đập xong rồi mới nhảy. Chỉ lấp khi không nhảy được,
+  không đi qua hố nông được và cũng không đập được gì từ chỗ đứng.
+
+### 2. Khối giữa không bao giờ bị bỏ qua
+
+- Khối giữa của lát vừa đập (đã thấy trống) **hiện lại** — server trả lại, ghost, hay sỏi rơi vào — thì quay lại đập ngay theo thang
+  đổi góc (`MiddleRetry`), **không đụng khối xung quanh** trong lúc thử:
+  1. lùi 0,5 ô (ra xa mặt đập) đập lại 3x3,
+  2. lùi thêm 0,5 ô đập lại,
+  3. bước ngang trái 0,5 ô đập lại,
+  4. bước ngang phải 0,5 ô đập lại,
+  5. ngồi đập lẻ riêng khối giữa.
+
+  Lùi/ngang bằng bước ngồi cho đúng chỗ (lệch khoảng 0,03 ô), đứng vững hết trôi rồi mới đập; chỗ mới không đứng được (tường, hố) thì đập lại
+  tại chỗ. Mỗi lần chỉ chờ khoảng ping (4 + 2·ping tick) xem khối có hiện lại không. Sỏi/cát rơi vào chỗ khối giữa thì đập luôn tại chỗ.
+- Thử đủ 5 lần vẫn hiện lại → cả mặt 3x3 của lát đó để vét cuối tầng; nếu nó che kín các lát sau (không với được từ phía này) thì kết thúc
+  hàng luôn, phần còn lại vét cuối tầng — trước đây thử từng lát, mỗi lát đứng chờ cả chục giây.
+- Trước đây: khối giữa bị trả lại → bị đưa vào hàng chờ thử lại (lùi 10–100 tick) nên các bước "khối che mặt hàng" / "phá khối chắn đường"
+  chọn **khối xung quanh**, mà hỏng 1 lần là chỉ đập lẻ → ngồi đập từng khối một (7–8 nhát lẻ thay cho 1 nhát 3x3).
+- Vét sót: khối đang chờ thử lại thì không đập lẻ khối xung quanh nó (chờ tới lượt đập 3x3 vào chính nó); hỏng 1–2 lần vẫn đập 3x3,
+  từ 3 lần mới đập lẻ (trước: hỏng 1 lần là đập lẻ).
+
+### Kiểm thử
+
+- Gametest thêm 7 ca; `Fake3x3Pickaxe` giả cả server trả lại khối (huỷ nhát phá, hoặc cho 3x3 vỡ rồi đặt lại riêng khối giữa).
+  Cùng bộ kiểm thử chạy trên 1.14.2 và 1.14.3 (tick = 1/20 giây):
+
+| Ca | 1.14.2 | 1.14.3 |
+|---|---|---|
+| J: tầng đã đào, rãnh 1 ô cắt ngang, khối sót bên kia, đứng sát mép (như ảnh) | 92 tick | 91 tick |
+| J2: đào hàng băng qua rãnh 1 ô (tầng chưa đào) | 1352 tick, **ngồi im sát mép**, **lấp rãnh 2 lần** | **507 tick**, nhảy qua, không lấp |
+| J3: rãnh chạy dọc làn bên của hàng | 1363 tick, **ngồi im sát mép** | **372 tick** |
+| J4: rãnh cắt ngang lối vào khung | 502 tick | 502 tick |
+| K: khối giữa bị trả lại 2 lần | 444 tick, **7 nhát lẻ khối xung quanh**, ngồi đập | **149 tick**, lùi 0,5 → lùi 0,5 → vỡ, 0 nhát xung quanh |
+| K2: bị trả lại 6 lần | 776 tick, **8 nhát lẻ khối xung quanh** | **270 tick**, đủ 5 bậc rồi để cuối tầng, 0 nhát xung quanh |
+| K3: 3x3 vỡ nhưng khối giữa hiện lại 3 lần | 300 tick, ngồi im ≥ 3 giây | **169 tick** |
+| I: đào trọn khung 15x6x15 có sỏi | 1677 tick | 1683 tick |
+
+- Toàn bộ 17 ca A–K3: 57/57 phép đạt. `MovementRegression` 29, `StrikeRegression` 7 phép đạt.
+
 ## 1.14.2
 
 Theo 6 yêu cầu của người dùng: đào liền khi tìm đường, đi chéo, phản ứng nhanh, đi qua hố nông, nhận diện địa hình như AutoBuild,
