@@ -5,7 +5,7 @@ Mod Fabric tự đào một khung (vùng chọn XYZ hoặc placement Litematica)
 
 | | |
 |---|---|
-| Phiên bản | **1.14.1** — [`release/donut-automine-fabric-1.21.4-1.14.1.jar`](release/donut-automine-fabric-1.21.4-1.14.1.jar) |
+| Phiên bản | **1.14.2** — [`release/donut-automine-fabric-1.21.4-1.14.2.jar`](release/donut-automine-fabric-1.21.4-1.14.2.jar) |
 | Minecraft | 1.21.4, Fabric Loader ≥ 0.16.9, Java 21 |
 | Cần thêm | Fabric API, Litematica ≥ 0.21.0, MaLiLib (Sodium/Iris không bắt buộc) |
 
@@ -13,7 +13,7 @@ Thay đổi của từng bản: [`CHANGELOG.md`](CHANGELOG.md).
 
 ## Cài
 
-Đóng Minecraft, xoá JAR AutoMine cũ trong thư mục `mods`, chép `donut-automine-fabric-1.21.4-1.14.1.jar` vào, mở lại game.
+Đóng Minecraft, xoá JAR AutoMine cũ trong thư mục `mods`, chép `donut-automine-fabric-1.21.4-1.14.2.jar` vào, mở lại game.
 Chỉ để **một** JAR AutoMine. Cấu hình cũ (`config/donut-automine.json`) dùng tiếp được; hai mục `rotationMinSpeed`/`rotationMaxSpeed`
 không còn tác dụng vì 1.14.0 quay mặt tức thì.
 
@@ -28,12 +28,12 @@ Các file chính của 1.14.0:
 
 | File | Việc |
 |---|---|
-| `mine/MineController.java` | `JumpTask` (nhảy qua khe kiểu AutoBuild), `WalkTask` (đi một mạch, nhìn trước, chạy nhanh), `RowTask` (hố trên sàn → nhảy), `chooseStrike` (vét sót), quay mặt tức thì |
+| `mine/MineController.java` | `JumpTask` (nhảy qua khe kiểu AutoBuild), `WalkTask` (đi một mạch, nhìn trước, chạy nhanh, đào liền khi gặp khối chắn), `RowTask` (hố trên sàn → nhảy / đi qua hố nông, khối thừa để cuối tầng), `chooseStrike` (vét sót), kiểm tra sau nhát chạy nền (`deferCheck`), quay mặt tức thì |
 | `mine/Parkour.java` | vật lý nhảy chép từ AutoBuild 3.0.121 |
 | `mine/StrikeScore.java` | điểm của một nhát đập vét sót |
-| `mine/AutoBuildNavigation.java`, `mine/DirectRoute.java` | tìm đường: nhảy qua khe cả khi có khối kê, đi thẳng một mạch |
+| `mine/AutoBuildNavigation.java`, `mine/DirectRoute.java`, `mine/PathFinder.java` | tìm đường: nhảy qua khe cả khi có khối kê, đi chéo theo luật AutoBuild, hố nông, nước nông, đi thẳng một mạch |
 | `mod/src/test/java/…/MovementRegression.java`, `StrikeRegression.java` | kiểm thử không cần mở game (địa hình giả qua `Cells.probe`) |
-| `mod/src/gametest/java/…/AutoMineClientTest.java` | kiểm thử trong Minecraft thật: nhảy qua hố, cột 3 khối, đào trọn khung 5x3x5, đi vét ô sót ở xa (khung 50×50 và 67×65) |
+| `mod/src/gametest/java/…/AutoMineClientTest.java`, `Fake3x3Pickaxe.java` | kiểm thử trong Minecraft thật (cúp 3x3 giả): 10 ca A–I — nhảy qua hố, cột 3 khối, đào trọn khung, vét ô sót ở xa, vừa đi vừa đào, đi chéo, hố nông |
 
 ## Build
 
@@ -44,7 +44,7 @@ cd mod
 
 Ra `mod/build/libs/donut-automine-fabric-1.21.4-<version>.jar`. `build` chạy luôn 2 bộ kiểm thử; chạy riêng: `./gradlew movementTest strikeTest`.
 
-Kiểm thử trong Minecraft thật: `./gradlew runClientGameTest` (mở game, tạo thế giới đơn, chạy 5 ca trong
+Kiểm thử trong Minecraft thật: `./gradlew runClientGameTest` (mở game, tạo thế giới đơn, chạy 10 ca trong
 `mod/src/gametest/java/com/donutautomine/test/AutoMineClientTest.java` rồi tự thoát; kết quả ở dòng `[GameTest] KẾT QUẢ` trong log).
-Trên Linux không có màn hình: `xvfb-run -a ./gradlew runClientGameTest`.
+Trên Linux không có màn hình: `xvfb-run -a ./gradlew runClientGameTest`. Chỉ chạy vài ca: `-Ponly=A,F`; ghi log mỗi tick: `-Ptrace=F`.
 Litematica, MaLiLib, Sodium lấy từ Modrinth Maven nên không cần chép jar vào `libs`.

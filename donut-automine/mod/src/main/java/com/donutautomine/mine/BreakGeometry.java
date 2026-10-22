@@ -33,6 +33,21 @@ public final class BreakGeometry {
       return var4 > var6 * 1.15;
    }
 
+   /** 1.14.2: hướng nhìn (yaw, pitch) chắc chắn thuộc trục var2 (thành phần trục đó lớn hơn 1,15 lần các trục kia) → server phá 3x3 đúng mặt */
+   public static boolean firm(float var0, float var1, Direction.Axis var2) {
+      Vec3d var3 = Vec3d.fromPolar(var1, var0);
+      double var4 = Math.abs(var3.getComponentAlongAxis(var2));
+      double var6 = 0.0;
+
+      for (Direction.Axis var11 : Direction.Axis.values()) {
+         if (var11 != var2) {
+            var6 = Math.max(var6, Math.abs(var3.getComponentAlongAxis(var11)));
+         }
+      }
+
+      return var4 > var6 * 1.15;
+   }
+
    public static boolean clearToPlace(Box var0, BlockPos var1) {
       return var0.minY >= var1.getY() + 1.0 && !var0.intersects(new Box(var1));
    }

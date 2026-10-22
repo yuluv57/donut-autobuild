@@ -56,8 +56,11 @@ public final class AutoBuildNavigation implements PathSearch.Terrain {
       this.standCache.clear();
    }
 
+   /** 1.14.2: ô hố nông thấp hơn minY 1 ô được đi qua (xuống rồi bước lên, đắt hơn nhảy nhưng rẻ hơn bắc cầu); MIN_VALUE = tắt */
+   public int dipY = Integer.MIN_VALUE;
+
    private boolean in(BlockPos var1) {
-      return var1.getY() >= this.minY
+      return (var1.getY() >= this.minY || var1.getY() == this.dipY && this.dipY == this.minY - 1)
          && var1.getY() <= this.maxY
          && !this.avoid.contains(var1)
          && Math.abs(var1.getX() - this.start.getX()) <= this.range
@@ -65,11 +68,16 @@ public final class AutoBuildNavigation implements PathSearch.Terrain {
    }
 
    private boolean clear(BlockPos var1) {
-      return this.clearCache.computeIfAbsent(var1, var1x -> Cells.clearBody(this.mc, var1x));
+      return this.clearCache.computeIfAbsent(var1, var1x -> Cells.clearBody(this.mc, var1x) || Cells.wading(this.mc, var1x));
    }
 
    private boolean stand(BlockPos var1) {
-      return this.standCache.computeIfAbsent(var1, var1x -> Cells.standable(this.mc, var1x) && this.clear(var1x));
+      return this.standCache.computeIfAbsent(var1, var1x -> Cells.standable(this.mc, var1x) && this.clear(var1x) || Cells.wading(this.mc, var1x));
+   }
+
+   /** 1.14.2: lội nước chậm và bị dòng đẩy → đắt hơn để ưu tiên đường khô (như AutoBuild) */
+   private double wet(BlockPos var1) {
+      return Cells.wading(this.mc, var1) ? 1.5 : 0.0;
    }
 
    private boolean safeGap(BlockPos var1) {
@@ -118,8 +126,12 @@ public final class AutoBuildNavigation implements PathSearch.Terrain {
                   && this.headroom(var12)
                   && (var11 == 0 || this.headroom(var6.up(Math.max(0, var11))))) {
                   PathSearch.Edge var14 = new PathSearch.Edge(cell(var12), 1.2 + 1.2 * var5 + Math.abs(var11) * 0.8, false);
-                  if (var11 < 0 && var13 == null && var5 < 3 && this.headroom(var7) && !this.stand(var7) && this.safeGap(var7)) {
-                     var13 = var14;
+                  if (var11 < 0 && (var13 != null || var5 < 3 && this.headroom(var7) && !this.stand(var7) && this.safeGap(var7))) {
+                     // ô đáp thấp hơn: giữ ô gần nhất làm dự phòng, tìm tiếp ô đáp cùng độ cao
+                     if (var13 == null) {
+                        var13 = var14;
+                     }
+
                      continue;
                   }
 
@@ -165,7 +177,7 @@ public final class AutoBuildNavigation implements PathSearch.Terrain {
             BlockPos var11 = var6.up(var10);
             if (this.in(var11) && this.clear(var11) && (var10 <= 0 || this.clear(var2.up())) && (var10 >= 0 || this.clear(var6))) {
                if (this.stand(var11)) {
-                  var3.add(new PathSearch.Edge(cell(var11), var10 == 0 ? 1.0 : 1.8, false));
+                  var3.add(new PathSearch.Edge(cell(var11), (var10 == 0 ? 1.0 : 1.8) + (var11.getY() == this.dipY ? 2.0 : 0.0) + this.wet(var11), false));
                   break;
                }
 
@@ -196,8 +208,9 @@ public final class AutoBuildNavigation implements PathSearch.Terrain {
       for (int var18 : new int[]{-1, 1}) {
          for (int var23 : new int[]{-1, 1}) {
             BlockPos var12 = var2.add(var18, 0, var23);
-            if (this.in(var12) && this.stand(var12) && this.stand(var2.add(var18, 0, 0)) && this.stand(var2.add(0, 0, var23))) {
-               var3.add(new PathSearch.Edge(cell(var12), 1.45, false));
+            // 1.14.2: đi chéo như AutoBuild — 2 ô vuông góc chỉ cần trống thân người (không cần có sàn), trước đây phải đứng được cả 2
+            if (this.in(var12) && this.stand(var12) && this.clear(var2.add(var18, 0, 0)) && this.clear(var2.add(0, 0, var23))) {
+               var3.add(new PathSearch.Edge(cell(var12), 1.45 + this.wet(var12), false));
             }
          }
       }
@@ -251,7 +264,8 @@ public final class AutoBuildNavigation implements PathSearch.Terrain {
       }
 
       public void advance() {
-         this.search.advanceFor(3000000L);
+         // 1.14.2: 8 ms mỗi tick (trước 3 ms) — tìm đường xong sau 1–2 tick thay vì đứng "suy nghĩ"
+         this.search.advanceFor(8000000L);
       }
 
       public boolean done() {

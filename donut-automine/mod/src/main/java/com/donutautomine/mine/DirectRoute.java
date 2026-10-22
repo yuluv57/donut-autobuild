@@ -1,5 +1,6 @@
 package com.donutautomine.mine;
 
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -25,6 +26,11 @@ public final class DirectRoute {
       return !Cells.loaded(var0, var1) ? false : Cells.passable(var0, var1) || var2 && WaterControl.water(var0, var1);
    }
 
+   /**
+    * Đường thẳng từ var1 tới tâm ô var2 đi được không: mọi góc thân người (±0,31) phải trống, không nguy hiểm, không nằm trong var4.
+    * 1.14.2 (theo vật lý vanilla: còn một phần chân trên khối là không rơi): mỗi điểm trên đường cần ít nhất 2 trong 4 góc chân có sàn
+    * (dư 1 góc phòng lệch ngang khi đi); trước đây đòi cả 4 góc nên sát mép hố không đi chéo / không đi thẳng được.
+    */
    public static boolean clearSegment(MinecraftClient var0, Vec3d var1, BlockPos var2, boolean var3, Set<BlockPos> var4) {
       int var5 = (int)Math.floor(var1.y + 0.02);
       if (var5 != var2.getY()) {
@@ -33,33 +39,42 @@ public final class DirectRoute {
          double var6 = var2.getX() + 0.5 - var1.x;
          double var8 = var2.getZ() + 0.5 - var1.z;
          int var10 = Math.max(1, (int)Math.ceil(Math.hypot(var6, var8) / 0.16));
-         HashSet var11 = new HashSet();
+         HashMap<BlockPos, Boolean> var11 = new HashMap<>();
 
          // 1.14.1: bỏ điểm xuất phát (người đang đứng đó rồi) — đứng sát mép hố thì góc thân chìa ra trên hố, trước đây bị coi là đường chặn
          for (int var12 = 1; var12 <= var10; var12++) {
             double var13 = var1.x + var6 * var12 / var10;
             double var15 = var1.z + var8 * var12 / var10;
+            int var17 = 0;
 
             for (double var20 : new double[]{-0.31, 0.31}) {
                for (double var25 : new double[]{-0.31, 0.31}) {
                   BlockPos var27 = BlockPos.ofFloored(var13 + var20, var5, var15 + var25);
-                  if (var11.add(var27)
-                     && (
-                        var4.contains(var27)
-                           || !body(var0, var27, var3)
-                           || !Cells.floor(var0, var27.down())
-                           || Cells.hazardAt(var0, var27)
-                           || Cells.hazardAt(var0, var27.up())
-                           || Cells.hazardAt(var0, var27.down())
-                           || var0 != null && ServerSync.pending(var0, var27.down())
-                     )) {
-                     return false;
+                  if (!var11.containsKey(var27)) {
+                     if (var4.contains(var27)
+                        || !body(var0, var27, var3)
+                        || Cells.hazardAt(var0, var27)
+                        || Cells.hazardAt(var0, var27.up())
+                        || Cells.hazardAt(var0, var27.down())) {
+                        return false;
+                     }
+
+                     var11.put(var27, Cells.floor(var0, var27.down()) && (var0 == null || !ServerSync.pending(var0, var27.down())));
+                  }
+
+                  if (var11.get(var27)) {
+                     var17++;
                   }
                }
             }
+
+            if (var17 < 2) {
+               return false;
+            }
          }
 
-         return true;
+         // ô đích phải đứng vững được
+         return Cells.floor(var0, var2.down());
       }
    }
 
@@ -80,6 +95,53 @@ public final class DirectRoute {
    }
 
    public static PathFinder.Step next(MinecraftClient var0, BlockPos var1, BlockPos var2, PathFinder.Dig var3, boolean var4, boolean var5, Set<BlockPos> var6) {
+      return next(var0, var1, var2, var3, var4, var5, var6, false);
+   }
+
+   /** 1.14.2: bước chéo 1 ô theo luật AutoBuild — ô đích đứng được, 2 ô vuông góc trống thân người (không cần sàn) */
+   static boolean diagonalOk(MinecraftClient var0, BlockPos var1, BlockPos var2, Set<BlockPos> var3) {
+      BlockPos var4 = new BlockPos(var2.getX(), var1.getY(), var1.getZ());
+      BlockPos var5 = new BlockPos(var1.getX(), var1.getY(), var2.getZ());
+      return !var3.contains(var2)
+         && Cells.standable(var0, var2)
+         && body(var0, var4, false)
+         && body(var0, var5, false)
+         && !Cells.hazardAt(var0, var4.down())
+         && !Cells.hazardAt(var0, var5.down())
+         && (var0 == null || !ServerSync.pending(var0, var2.down()));
+   }
+
+   /**
+    * 1.14.2: hố nông 1 ô mà bên kia có chỗ đứng cùng độ cao → đi xuống rồi bước lên (chỉ bước dọc trục, tối đa 5 ô đáy hố).
+    * Dùng khi không nhảy qua được (hố rộng quá 3 ô), thay cho bắc cầu.
+    */
+   static boolean dipCrossable(MinecraftClient var0, BlockPos var1, Direction var2, Set<BlockPos> var3) {
+      BlockPos var4 = var1.offset(var2);
+      if (!body(var0, var4.down(), false) || !Cells.standable(var0, var4.down()) || var3.contains(var4.down())) {
+         return false;
+      } else {
+         for (int var5 = 2; var5 <= 6; var5++) {
+            BlockPos var6 = var1.offset(var2, var5);
+            if (!Cells.loaded(var0, var6) || var3.contains(var6)) {
+               return false;
+            }
+
+            if (Cells.standable(var0, var6)) {
+               return true;
+            }
+
+            if (!Cells.standable(var0, var6.down()) || !Cells.passable(var0, var6.up())) {
+               return false;
+            }
+         }
+
+         return false;
+      }
+   }
+
+   public static PathFinder.Step next(
+      MinecraftClient var0, BlockPos var1, BlockPos var2, PathFinder.Dig var3, boolean var4, boolean var5, Set<BlockPos> var6, boolean var7x
+   ) {
       if (var1.getX() != var2.getX() || var1.getZ() != var2.getZ()) {
          int var7 = var2.getX() - var1.getX();
          int var8 = var2.getZ() - var1.getZ();
@@ -92,7 +154,7 @@ public final class DirectRoute {
             }
 
             BlockPos var14 = var1.add(Integer.signum(var7), 0, Integer.signum(var8));
-            if (clearSegment(var0, Cells.eyeAt(var1).add(0.0, -1.62, 0.0), var14, var5, var6)) {
+            if (clearSegment(var0, Cells.eyeAt(var1).add(0.0, -1.62, 0.0), var14, var5, var6) || diagonalOk(var0, var1, var14, var6)) {
                return step(var14, PathFinder.Kind.WALK);
             }
          }
@@ -111,8 +173,13 @@ public final class DirectRoute {
 
                      // 1.14.0: khe trên đường đi → nhảy qua (kiểu AutoBuild) trước khi nghĩ tới bắc cầu
                      BlockPos var22 = new AutoBuildNavigation(var0, var1, null, var1.getY() - 1, var1.getY(), false, false, var6).jumpTarget(var1, var19);
-                     if (var22 != null && var2.getY() >= var1.getY()) {
+                     boolean var23 = var7x && var2.getY() >= var1.getY() && dipCrossable(var0, var1, var19, var6);
+                     if (var22 != null && var2.getY() >= var1.getY() && (var22.getY() >= var1.getY() || !var23)) {
                         return step(var22, PathFinder.Kind.JUMP);
+                     }
+
+                     if (var23) {
+                        return step(var20.down(), PathFinder.Kind.WALK);
                      }
 
                      if (var4 && (Cells.scaffoldAt(var0, var20.down()) || var5 && WaterControl.water(var0, var20.down()))) {

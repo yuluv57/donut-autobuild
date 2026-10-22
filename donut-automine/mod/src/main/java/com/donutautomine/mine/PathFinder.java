@@ -171,6 +171,25 @@ public final class PathFinder {
                }
             }
 
+            // 1.14.2: đường có đào cũng đi chéo được (trước chỉ 4 hướng → đi hình bậc thang)
+            for (int var46 : new int[]{-1, 1}) {
+               for (int var47 : new int[]{-1, 1}) {
+                  BlockPos var48 = var20.add(var46, 0, var47);
+                  BlockPos var49 = var20.add(var46, 0, 0);
+                  BlockPos var50 = var20.add(0, 0, var47);
+                  if (in(var48, var6, var7)
+                     && !var8.contains(var48)
+                     && Cells.loaded(var0, var48)
+                     && var15.standable(var48)
+                     && var15.passable(var49)
+                     && var15.passable(var49.up())
+                     && var15.passable(var50)
+                     && var15.passable(var50.up())) {
+                     push(var11, var12, var13, var19, var48, Cells.fluidAt(var0, var48) ? 2.9 : 1.45, var3, var9, PathFinder.Kind.WALK, null, null);
+                  }
+               }
+            }
+
             if (var5 != null) {
                BlockPos var34 = var20.down();
                int var17;
@@ -287,7 +306,14 @@ public final class PathFinder {
    }
 
    private static double h(BlockPos var0, BlockPos var1, double var2) {
-      return var1 == null ? 0.0 : Math.abs(var0.getX() - var1.getX()) + Math.abs(var0.getZ() - var1.getZ()) + Math.abs(var0.getY() - var1.getY()) * var2;
+      if (var1 == null) {
+         return 0.0;
+      } else {
+         // 1.14.2: khoảng cách có tính đi chéo (ô chéo giá 1,45) thay cho Manhattan
+         int var4 = Math.abs(var0.getX() - var1.getX());
+         int var5 = Math.abs(var0.getZ() - var1.getZ());
+         return Math.max(var4, var5) + 0.45 * Math.min(var4, var5) + Math.abs(var0.getY() - var1.getY()) * var2;
+      }
    }
 
    private static List<PathFinder.Step> build(PathFinder.Node var0) {

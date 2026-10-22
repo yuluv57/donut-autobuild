@@ -1,5 +1,82 @@
 # Lịch sử sửa — donut-automine
 
+## 1.14.2
+
+Theo 6 yêu cầu của người dùng: đào liền khi tìm đường, đi chéo, phản ứng nhanh, đi qua hố nông, nhận diện địa hình như AutoBuild,
+để dành khối thừa tới cuối tầng.
+
+### 1. Đào liền khi tìm đường (không đào – chờ – đào – chờ)
+
+- `WalkTask` gặp khối chắn đường thì tự ngắm và giữ đập ngay, khối vỡ là đi tiếp (trước đây giao cho `StrikeTask`: tới chỗ đứng → ngắm →
+  đập → **chờ server** → **kiểm tra** → **đồng bộ ghost**, rồi mới đi tiếp). Khối ở ô sau ô đang tới mà đã với tới thì vừa đi vừa đập.
+- `StrikeTask` (mọi nhát: vét sót, đào xuống, phá đường…) vỡ là xong ngay; kiểm tra server trả lại khối, đếm ô 3x3 vỡ, xin đồng bộ ghost
+  chạy nền sau vài tick (`deferCheck`/`runDeferred`), không bắt bot đứng chờ.
+- Không cần đợi góc nhìn đứng yên 1 tick mới đập: mặt 3x3 chỉ phụ thuộc trục của hướng nhìn, nên đủ khi hướng nhìn server đang biết đã
+  chắc chắn cùng trục (`BreakGeometry.firm`). Trước đây vừa đi vừa ngắm thì góc đổi liên tục → ~10 tick mới đập được.
+- Vừa đập khối trên, khối dưới sẽ vỡ theo 3x3 nhưng server chưa báo → nhớ các ô "sắp vỡ" (`expectedGone`), không đi tìm chỗ đứng để đập
+  lại khối đó, vẫn bước tới trong lúc chờ.
+- Giữ nguyên 5 tick nghỉ giữa 2 nhát của Minecraft gốc (bỏ đi là "đập nhanh", dễ bị anti-cheat bắt).
+
+### 2. Đi chéo kiểu AutoBuild
+
+- Bước chéo hợp lệ khi ô đích đứng được và 2 ô vuông góc trống thân người (luật của AutoBuild); trước đây đòi 2 ô vuông góc cũng phải
+  đứng được, nên sát mép hố là đi hình chữ L. Áp dụng cho A*, đường đi thẳng và đường có đào (trước chỉ đi 4 hướng).
+- Kiểm tra đường thẳng / an toàn lúc bấm phím theo vật lý vanilla: còn một phần chân trên khối là không rơi. Mỗi điểm cần ít nhất
+  2 trong 4 góc chân có sàn (dư 1 góc phòng lệch ngang); trước đây đòi đủ 4 góc → sát mép hố là dừng + ngồi.
+
+### 3. Phản ứng nhanh
+
+- Gặp khe: việc nhảy chạy luôn trong tick tạo ra nó; tính lại đường không nhả phím; đáp xuống mà đường còn đi tiếp về phía trước thì
+  không hãm (trước đây bấm lùi, tụt 0,12 → 0,02 rồi tăng tốc lại); đi thì không tự ngồi chỉ vì chân chạm mép hố; nhảy được khi lệch ngang
+  tới 0,4 ô (trước 0,3 → vào khe từ hướng chéo phải lùi lấy đà).
+- Việc con xong là đi tiếp ngay trong tick đó; hết bước đường thẳng thì tính bước mới và đi luôn.
+- Tìm đường A* 8 ms mỗi tick (trước 3 ms).
+- Đầu hàng: lát đầu nằm sát mép khung, đường đi đưa tới phía bên kia → đập mặt đối diện (cùng trục, cùng mặt 3x3). Trước đây đứng
+  chờ ~90 tick rồi mới giao việc.
+- Xong tầng: không chờ cố định 20 tick; chỉ chờ khi còn khối đang rơi / nhát chờ server xác nhận (tối thiểu 5 tick).
+
+### 4. Hố nông 1 ô: đi xuống rồi bước lên
+
+- Đi trong tầng mà gặp hố/rãnh sâu 1 ô không nhảy qua được (rộng quá 3 ô) → bước xuống, đi trong rãnh, bước lên bên kia; đắt hơn nhảy
+  nhưng rẻ hơn bắc cầu. Đang đào hàng gặp hố như vậy cũng đi qua thay vì lấp.
+- Đứng thấp hơn sàn tầng đúng 1 ô khi đang đi → không bật "bắc cột leo lên tầng"; dừng trong hố thì bước lên ô sàn gần nhất.
+
+### 5. Nhận diện địa hình như AutoBuild
+
+- Ngoài các điểm trên (đi chéo theo luật AutoBuild, hố nông, khe sâu ≤ 5 ô): nước nông (chân ngập, đầu khô, có sàn, không gần lava)
+  lội qua được, đắt hơn ô khô 1,5 như AutoBuild 3.0.84; trước đây mọi ô có nước đều coi là không đi được.
+
+### 6. Khối thừa để dành tới cuối tầng
+
+- Bỏ vét sót giữa hàng ("khối thấp còn sót trong hàng") và cuối mỗi hàng ("vét sót hàng N"); hết hàng đi tiếp ngay, không chờ đồng bộ.
+  Toàn bộ khối thừa vét một lượt cuối tầng (chọn nhát đập theo điểm như 1.14.0).
+- Vẫn phá ngay: sỏi/cát rơi lại vào hàng, khối chắn đường đi, khối che mặt cần đập.
+
+### Kiểm thử
+
+- `MovementRegression` 29 phép (thêm: bước chéo sát góc hố, đường chéo (0,0)→(8,8) toàn bước chéo, rãnh rộng 4 sâu 1 → bước xuống,
+  A* trong tầng qua rãnh không bắc cầu, nước nông lội qua). `StrikeRegression` 7 phép.
+- Gametest trong Minecraft thật có **cúp 3x3 giả** (`Fake3x3Pickaxe`: cúp tên "3x3" phá 3x3 vuông góc hướng nhìn, ngồi thì 1 khối,
+  Hiệu suất V) để giống DonutSMP; đếm tick theo tuổi nhân vật. Cùng bộ kiểm thử chạy trên 1.14.1 và 1.14.2:
+
+| Ca | 1.14.1 | 1.14.2 |
+|---|---|---|
+| A. Đường hầm 2 khe | 66 | 61 |
+| C. Đào trọn khung 5x3x5 | 206 | 136 |
+| D. Khung 50×50, 6 ô sót xa | 540 | 491 |
+| E. Khung 67×65 như log, 6 ô sót sát mép | 348 | 303 |
+| F. Đường hầm 12 khối chặn (vừa đi vừa đào) | 191, 12 bước chờ | 83, không chờ |
+| G. Đi chéo 12×12 sàn trống | 66 | 66 |
+| G2. Đi chéo cạnh dãy hố | 114, quãng 20,4 ô | 71, quãng 16,6 ô (đường chéo 17) |
+| H. Rãnh rộng 4 sâu 1, đi trong tầng | 79, bắc cầu 1 khối | 69, không đặt khối |
+| I. Đào trọn khung 15×6×15 (2 tầng, có sỏi) | 1886 | 1681 |
+
+1.14.2 đạt 20/20 phép trong game, 1.14.1 đạt 17/20. Vòng đào hàng còn khoảng 8–9 tick mỗi nhát: 5 tick nghỉ giữa 2 nhát của game gốc +
+2–3 tick đập đá (Hiệu suất V) + bước sang lát kế.
+
+**Chưa chạy trên DonutSMP.** Chưa kiểm thử: cúp 3x3 thật của server và anti-cheat với việc vừa đi vừa đập / đập ngay khi hướng nhìn
+cùng trục, ping cao.
+
 ## 1.14.1
 
 Sửa bot đứng im rất lâu dù còn khối sót / còn hàng chưa đào (log người dùng 21:47–22:11 trên DonutSMP, khung 67×27×65).

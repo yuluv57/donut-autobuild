@@ -104,6 +104,8 @@ public final class MineController {
    private final Map<BlockPos, Integer> retryAt = new HashMap<>();
    private int layerQuietSince = -1;
    private int finalQuietSince = -1;
+   /** 1.14.2: kiểm tra sau mỗi nhát chạy nền (không bắt việc đập đứng chờ): {tick, khối, các ô 3x3 lúc đập} */
+   private final List<Object[]> deferred = new ArrayList<>();
    private float stableYaw = Float.NaN;
    private float stablePitch = Float.NaN;
    private int rotationStableTicks;
@@ -543,6 +545,7 @@ public final class MineController {
                   && this.layer >= 0
                   && this.layer < this.region.layerCount()
                   && this.feet().getY() < this.region.floor(this.layer)
+                  && !(this.task != null && this.task.walking() && this.feet().getY() == this.region.floor(this.layer) - 1)
                   && !(this.task instanceof MineController.ClimbTask)
                   && !(this.task instanceof MineController.DescendTask)
                   && !(this.task instanceof MineController.EntryTask)
@@ -585,6 +588,7 @@ public final class MineController {
                         this.scanLayer();
                      }
 
+                     this.runDeferred();
                      this.watchdog();
                      if (this.state == MineController.State.RUNNING) {
                         if (this.task == null) {
@@ -775,12 +779,129 @@ public final class MineController {
       AutoMineMod.LOGGER.info("[AutoMine] Thử lại ô {} sau {} lần: {}", new Object[]{var1.toShortString(), var3, var2});
    }
 
+   /** 1.14.2: ô sẽ vỡ theo nhát 3x3 vừa đập (chờ server báo) → tới hạn này không đập lại / không đi tìm chỗ đứng để đập */
+   private final Map<BlockPos, Integer> expected = new HashMap<>();
+
+   /** 1.14.2: đang đứng trong hố nông ngay dưới sàn tầng → ô sàn kề bên bước lên được (null nếu không có) */
+   BlockPos dipExit() {
+      BlockPos var1 = this.feet();
+      if (this.region != null && this.layer >= 0 && var1.getY() == this.region.floor(this.layer) - 1 && Cells.passable(this.mc, var1.up(2))) {
+         BlockPos var2 = null;
+         double var3 = Double.MAX_VALUE;
+
+         for (int var5 = -1; var5 <= 1; var5++) {
+            for (int var6 = -1; var6 <= 1; var6++) {
+               BlockPos var7 = var1.add(var5, 1, var6);
+               if ((var5 != 0 || var6 != 0)
+                  && (var5 == 0 || var6 == 0 || Cells.clearBody(this.mc, var1.add(var5, 0, 0)) && Cells.clearBody(this.mc, var1.add(0, 0, var6)))
+                  && Cells.standable(this.mc, var7)
+                  && !this.avoid.contains(var7)) {
+                  double var8 = var7.getSquaredDistance(this.mc.player.getPos());
+                  if (var8 < var3) {
+                     var3 = var8;
+                     var2 = var7;
+                  }
+               }
+            }
+         }
+
+         return var2;
+      } else {
+         return null;
+      }
+   }
+
+   /** ô sàn tầng (Y = var1) đứng được gần nhất trong bán kính var2 */
+   private BlockPos nearFloor(int var1, int var2) {
+      BlockPos var3 = this.feet();
+      BlockPos var4 = null;
+      double var5 = Double.MAX_VALUE;
+
+      for (int var7 = -var2; var7 <= var2; var7++) {
+         for (int var8 = -var2; var8 <= var2; var8++) {
+            BlockPos var9 = new BlockPos(var3.getX() + var7, var1, var3.getZ() + var8);
+            double var10;
+            if (this.region.insideColumn(var9.getX(), var9.getZ()) && (var10 = var9.getSquaredDistance(var3)) < var5 && Cells.standable(this.mc, var9)) {
+               var5 = var10;
+               var4 = var9;
+            }
+         }
+      }
+
+      return var4;
+   }
+
+   void deferCheck(BlockPos var1, List<BlockPos> var2) {
+      this.deferred.add(new Object[]{this.ticks, var1.toImmutable(), var2 == null ? List.of() : var2});
+      if (var2 != null && !Boolean.FALSE.equals(this.threeByThree)) {
+         int var3 = this.ticks + 4 + ServerSync.pingTicks(this.mc);
+
+         for (BlockPos var5 : var2) {
+            this.expected.put(var5.toImmutable(), var3);
+         }
+      }
+   }
+
+   boolean expectedGone(BlockPos var1) {
+      Integer var2 = this.expected.get(var1);
+      if (var2 == null) {
+         return false;
+      } else if (this.ticks <= var2 && Cells.mineable(this.mc, var1)) {
+         return true;
+      } else {
+         this.expected.remove(var1);
+         return false;
+      }
+   }
+
+   /** khối bị server trả lại → tính là lần hỏng (thử lại sau); đếm ô 3x3 vỡ để biết cúp có phá 3x3; xin đồng bộ ô còn lại */
+   @SuppressWarnings("unchecked")
+   private void runDeferred() {
+      int var1 = this.settleTicks();
+
+      for (int var2 = 0; var2 < this.deferred.size(); var2++) {
+         Object[] var3 = this.deferred.get(var2);
+         if (this.ticks - (Integer)var3[0] >= var1) {
+            BlockPos var4 = (BlockPos)var3[1];
+            List<BlockPos> var5 = (List<BlockPos>)var3[2];
+            if (Cells.loaded(this.mc, var4) && Cells.mineable(this.mc, var4)) {
+               this.fail(var4, "server trả lại khối");
+            } else {
+               this.fails.remove(var4);
+               this.retryAt.remove(var4);
+            }
+
+            int var6 = 0;
+
+            for (BlockPos var8 : var5) {
+               if (!Cells.mineable(this.mc, var8)) {
+                  var6++;
+               } else if (this.config.ghostResync && (this.threeByThree == null || this.threeByThree)) {
+                  this.ghost.request(var8);
+               }
+            }
+
+            this.cleared += var6 + 1;
+            this.calibrate(var5.size(), var6);
+            this.deferred.remove(var2--);
+            var5.forEach(this.expected::remove);
+         }
+      }
+   }
+
    private boolean retryReady(BlockPos var1) {
       return this.ticks >= this.retryAt.getOrDefault(var1, 0);
    }
 
+   /**
+    * 1.14.2: không cần đợi góc nhìn đứng yên 1 tick (đang đi thì góc đổi liên tục → trước đây chờ ~10 tick mới đập):
+    * mặt 3x3 chỉ phụ thuộc trục của hướng nhìn, nên đủ khi hướng nhìn server đang biết (gửi ở tick trước) đã chắc chắn cùng trục.
+    */
    private boolean drillCrosshairOn(BlockPos var1, Direction var2) {
-      return this.rotationStableTicks >= 1
+      return (
+               this.rotationStableTicks >= 1
+                  || var2 != null && !Float.isNaN(this.stableYaw) && BreakGeometry.firm(this.stableYaw, this.stablePitch, var2.getAxis())
+            )
             && var2 != null
             && this.crosshairOn(var1, var2)
             && BreakGeometry.normal(this.mc.player.getYaw(), this.mc.player.getPitch()).getAxis() == var2.getAxis()
@@ -837,7 +958,8 @@ public final class MineController {
             }
          }
 
-         return this.ticks - var2 >= Math.max(20, this.settleTicks());
+         // 1.14.2: không chờ cố định — xong ngay khi không còn khối đang rơi, không còn nhát chờ server xác nhận / kiểm tra nền (tối thiểu 5 tick)
+         return this.ticks - var2 >= 5 && this.deferred.isEmpty() && ServerSync.pendingCount(this.mc) == 0 || this.ticks - var2 >= Math.max(20, this.settleTicks());
       }
    }
 
@@ -1075,8 +1197,22 @@ public final class MineController {
                );
          }
 
+         BlockPos var42;
          if (var6.getY() > var5) {
             return new MineController.DescendTask(var5);
+         } else if (var6.getY() == var5 - 1 && (var42 = this.dipExit()) != null) {
+            // 1.14.2: đứng trong hố nông 1 ô → bước thẳng lên sàn tầng, không bắc cột
+            MineController.WalkTask var43 = new MineController.WalkTask(var42, 0.3, false, "bước lên khỏi hố nông");
+            var43.yLo = var5 - 1;
+            var43.yHi = var5;
+            return var43;
+         } else if (var6.getY() == var5 - 1 && (var42 = this.nearFloor(var5, 6)) != null) {
+            // rãnh nông rộng: đi trong rãnh tới chỗ bước lên được
+            MineController.WalkTask var44 = new MineController.WalkTask(var42, 0.3, false, "ra khỏi rãnh nông");
+            var44.goalTest = var2x -> var2x.getY() == var5;
+            var44.yLo = var5 - 1;
+            var44.yHi = var5;
+            return var44;
          } else if (var6.getY() < var5) {
             return (MineController.Task)(this.layerHasWork(this.layer) ? new MineController.ClimbTask(var5) : this.inspectUnknownLayer());
          } else if (!this.region.insideColumn(var6.getX(), var6.getZ())) {
@@ -1637,7 +1773,7 @@ public final class MineController {
       } else {
          BlockPos var4 = this.feet();
          List<BlockPos> var5 = new ArrayList<>(var1);
-         var5.removeIf(var1x -> !this.retryReady(var1x) || this.waterDams.contains(var1x));
+         var5.removeIf(var1x -> !this.retryReady(var1x) || this.waterDams.contains(var1x) || this.expectedGone(var1x));
          var5.sort(Comparator.comparingDouble(var1x -> var1x.getSquaredDistance(this.mc.player.getPos())));
          if (var5.size() > 32) {
             var5 = var5.subList(0, 32);
@@ -2570,7 +2706,7 @@ public final class MineController {
                      return MineController.Result.RUNNING;
                   } else {
                      double var43 = this.dy == 0 && !var29 && this.gap < 2 ? 0.15 : -0.3;
-                     if (var3 >= var43 && var38 && !var28 && Math.abs(var7) <= 0.3 && Math.abs(var9) <= 0.08) {
+                     if (var3 >= var43 && var38 && !var28 && Math.abs(var7) <= 0.4 && Math.abs(var9) <= 0.12) {
                         this.keys(true, false, false, false, true);
                         MineController.this.status = "Nhảy qua khe " + this.gap + " ô";
                      } else if (var39 > 0.72) {
@@ -3292,6 +3428,19 @@ public final class MineController {
          return (var2.getX() + 0.5 - var1.x) * var3.getOffsetX() + (var2.getZ() + 0.5 - var1.z) * var3.getOffsetZ();
       }
 
+      /**
+       * 1.14.2: mặt đập của lát; đang đứng ở phía bên kia lát (vd. lát đầu hàng sát mép khung, đường đi đưa tới phía sau)
+       * thì đập mặt đối diện — cùng trục nên mặt 3x3 y hệt. Trước đây đứng chờ ~90 tick rồi mới giao cho StrikeTask.
+       */
+      private Direction rowFace(BlockPos var1, Direction var2) {
+         Vec3d var3 = MineController.this.mc.player.getEyePos();
+         if (Cells.drillFacePoint(MineController.this.mc, var3, var1, var2, MineController.this.reach()) != null) {
+            return var2;
+         } else {
+            return Cells.drillFacePoint(MineController.this.mc, var3, var1, var2.getOpposite(), MineController.this.reach()) != null ? var2.getOpposite() : var2;
+         }
+      }
+
       private List<BlockPos> planeLeft(LayerPlan.Slice var1) {
          ArrayList var2 = new ArrayList();
          int var3 = MineController.this.region.floor(MineController.this.layer);
@@ -3448,8 +3597,10 @@ public final class MineController {
                      && Cells.loaded(MineController.this.mc, var2 = this.run.get(this.idx).center())
                      && (MineController.this.skipped.contains(var2) || !Cells.mineable(MineController.this.mc, var2))
                ) {
-                  List var4 = this.planeLeft(this.run.get(this.idx));
-                  MineController.Task var5 = var4.isEmpty() ? null : MineController.this.chooseStrike(var4, "khối thấp còn sót trong hàng", false);
+                  // 1.14.2: khối thừa quanh lát đã trống để dành vét một lượt cuối tầng; chỉ phá ngay sỏi/cát vừa rơi lại vào hàng
+                  List<BlockPos> var4 = this.planeLeft(this.run.get(this.idx));
+                  var4.removeIf(var0 -> !(Cells.state(MineController.this.mc, var0).getBlock() instanceof FallingBlock));
+                  MineController.Task var5 = var4.isEmpty() ? null : MineController.this.chooseStrike(var4, "sỏi/cát rơi lại vào hàng", false);
                   if (var5 != null) {
                      this.stopBreaking();
                      Keys.releaseMove(MineController.this.mc);
@@ -3468,7 +3619,7 @@ public final class MineController {
                if (this.idx < this.run.size() && Cells.loaded(MineController.this.mc, this.run.get(this.idx).center())) {
                   LayerPlan.Slice var2x = this.run.get(this.idx);
                   BlockPos var28 = var2x.center();
-                  Direction var30 = var2x.face();
+                  Direction var30 = this.rowFace(var28, var2x.face());
                   if (!var28.equals(this.target)) {
                      this.target = var28;
                      this.targetSince = this.age;
@@ -3501,7 +3652,7 @@ public final class MineController {
                               MineController.this.strikes++;
                               this.done++;
                               MineController.this.recentStrikes.put(var28, MineController.this.ticks);
-                              this.checks.add(new Object[]{MineController.this.ticks, this.pendingBefore == null ? List.of() : this.pendingBefore});
+                              MineController.this.deferCheck(var28, this.pendingBefore);
                               this.pendingBefore = null;
                               this.breakTicks = 0;
                               this.idle = 0;
@@ -3530,7 +3681,7 @@ public final class MineController {
 
                         Object var31 = this.idx < this.run.size() ? this.run.get(this.idx) : var2x;
                         BlockPos var32 = ((LayerPlan.Slice)var31).center();
-                        Direction var33 = ((LayerPlan.Slice)var31).face();
+                        Direction var33 = this.rowFace(var32, ((LayerPlan.Slice)var31).face());
                         Direction var9 = var33.getOpposite();
                         Vec3d var10 = Cells.drillFacePoint(
                            MineController.this.mc, MineController.this.mc.player.getEyePos(), var32, var33, MineController.this.reach()
@@ -3562,6 +3713,26 @@ public final class MineController {
                                     var38.straightAfter = true;
                                     this.sub = var38;
                                     return MineController.Result.RUNNING;
+                                 }
+
+                                 // 1.14.2: không nhảy được nhưng hố chỉ sâu 1 ô và bên kia có sàn → đi xuống rồi bước lên, không lấp
+                                 if (this.jumpFails < 2 && DirectRoute.dipCrossable(MineController.this.mc, MineController.this.feet(), var9, MineController.this.avoid)) {
+                                    BlockPos var39 = null;
+
+                                    for (int var40 = 2; var40 <= 6 && var39 == null; var40++) {
+                                       BlockPos var41 = MineController.this.feet().offset(var9, var40);
+                                       if (Cells.standable(MineController.this.mc, var41)) {
+                                          var39 = var41;
+                                       }
+                                    }
+
+                                    if (var39 != null && MineController.this.region.insideColumn(var39.getX(), var39.getZ())) {
+                                       MineController.WalkTask var42 = MineController.this.new WalkTask(var39, 0.3, false, "đi qua hố nông");
+                                       var42.yLo = var3 - 1;
+                                       var42.yHi = var3;
+                                       this.sub = var42;
+                                       return MineController.Result.RUNNING;
+                                    }
                                  }
 
                                  Keys.releaseMove(MineController.this.mc);
@@ -3657,24 +3828,9 @@ public final class MineController {
                   Keys.releaseMove(MineController.this.mc);
                   this.stopBreaking();
                   if (!this.settling) {
+                     // 1.14.2: hết hàng đi tiếp ngay; kiểm tra ô 3x3 / đồng bộ ghost chạy nền (deferCheck), khối thừa để cuối tầng
                      this.settling = true;
-                     int var27 = 0;
-
-                     for (int var29 = 0; var29 < Math.min(this.idx, this.run.size()) && var27 < 24; var29++) {
-                        Integer var6 = MineController.this.recentStrikes.get(this.run.get(var29).center());
-                        if (var6 == null || MineController.this.ticks - var6 > MineController.this.settleTicks()) {
-                           for (BlockPos var8 : this.planeLeft(this.run.get(var29))) {
-                              MineController.this.ghost.request(var8);
-                              var27++;
-                           }
-                        }
-                     }
-
-                     // 1.14.1: hàng không đập nhát nào (đã đào sẵn) hoặc không còn ô nào cần đồng bộ → đi tiếp ngay,
-                     // trước đây vẫn chờ ~1 giây mỗi hàng ("0 nhát liền trong 0,9 giây")
-                     this.settleUntil = this.done > 0 && var27 > 0
-                        ? this.age + MineController.this.settleTicks() + (var27 + MineController.this.config.resyncPerTick - 1) / MineController.this.config.resyncPerTick
-                        : this.age;
+                     this.settleUntil = this.age;
                   }
 
                   if (this.age < this.settleUntil) {
@@ -3683,8 +3839,6 @@ public final class MineController {
                   } else {
                      this.runChecks(true);
                      if (this.idx >= this.run.size() && !this.reverse) {
-                        MineController.this.laneSweep = new int[]{this.runStart, this.base + this.run.size()};
-                        MineController.this.laneSweepTries = 0;
                         AutoMineMod.LOGGER
                            .info(
                               "[AutoMine] Xong hàng {}/{} (tầng {}): {} nhát liền trong {} giây",
@@ -3717,11 +3871,6 @@ public final class MineController {
 
          this.runChecks(false);
          this.checks.clear();
-         if (!this.reverse && MineController.this.plan == this.lp && this.idx >= this.run.size() && MineController.this.laneSweep == null) {
-            MineController.this.laneSweep = new int[]{this.runStart, this.base + this.run.size()};
-            MineController.this.laneSweepTries = 0;
-         }
-
          super.finish();
       }
    }
@@ -4010,8 +4159,7 @@ public final class MineController {
                switch (this.phase) {
                   case 0:
                      if (!Cells.mineable(MineController.this.mc, this.c)) {
-                        this.to(4);
-                        return MineController.Result.RUNNING;
+                        return MineController.Result.DONE;
                      } else if (this.walk == null && !this.holdMiningPosture()) {
                         return MineController.Result.RUNNING;
                      } else {
@@ -4127,8 +4275,7 @@ public final class MineController {
                      }
                   case 1:
                      if (!Cells.mineable(MineController.this.mc, this.c)) {
-                        this.to(4);
-                        return MineController.Result.RUNNING;
+                        return MineController.Result.DONE;
                      } else if (!this.holdMiningPosture()) {
                         return MineController.Result.RUNNING;
                      } else if (!MineController.this.equipPick()) {
@@ -4205,11 +4352,13 @@ public final class MineController {
 
       private MineController.Result breakStep() {
          if (!Cells.mineable(MineController.this.mc, this.c)) {
+            // 1.14.2: vỡ là xong ngay — kiểm tra server trả lại / ô 3x3 / đồng bộ ghost chạy nền (deferCheck),
+            // trước đây đứng chờ "chờ server" + "kiểm tra" + "đồng bộ ghost" sau mỗi nhát
             this.brokeAt = this.age;
             MineController.this.strikes++;
             MineController.this.recentStrikes.put(this.c, MineController.this.ticks);
-            this.to(3);
-            return MineController.Result.RUNNING;
+            MineController.this.deferCheck(this.c, this.single ? List.of() : this.before);
+            return MineController.Result.DONE;
          } else if (!this.holdMiningPosture()) {
             return MineController.Result.RUNNING;
          } else if (!MineController.this.pickReady()) {
@@ -4440,6 +4589,7 @@ public final class MineController {
       int noRise;
       Runnable onFail;
       int aimIdx = -1;
+      boolean reentered;
       int directRejects;
 
       WalkTask(BlockPos nullx, double nullxx, boolean nullxxx, String nullxxxx) {
@@ -4494,14 +4644,114 @@ public final class MineController {
          }
       }
 
+      /** ô kế tiếp theo trục hướng về đích (đường thẳng chỉ giữ 1 bước, dùng để đào trước ô sau) */
+      private BlockPos towardGoal(BlockPos var1) {
+         int var2 = this.goal.getX() - var1.getX();
+         int var3 = this.goal.getZ() - var1.getZ();
+         if (var2 == 0 && var3 == 0) {
+            return null;
+         } else {
+            return Math.abs(var2) >= Math.abs(var3) ? var1.add(Integer.signum(var2), 0, 0) : var1.add(0, 0, Integer.signum(var3));
+         }
+      }
+
+      BlockPos drillAt;
+      int drillSince;
+      int drillFails;
+      List<BlockPos> drillBefore;
+
+      /**
+       * 1.14.2: đào khối chắn đường ngay trong WalkTask: ngắm (tức thì), giữ đập, khối vỡ (phía client) là đi tiếp ngay;
+       * kiểm tra server chạy nền. moving = đang đi tới ô trước (đào trước ô kế tiếp), không dừng chân.
+       * Trả false nếu không đào thẳng được (không thấy mặt / đập lẻ phải ngồi / cúp không 3x3) → để StrikeTask làm.
+       */
+      private boolean drill(PathFinder.Strike var1, boolean var2) {
+         BlockPos var3 = var1.c();
+         if (this.drillFails >= 2
+            || !Cells.mineable(MineController.this.mc, var3)
+            || Boolean.FALSE.equals(MineController.this.threeByThree)
+            || MineController.this.fails.getOrDefault(var3, 0) > 0
+            || MineController.this.damInPlane(var3, var1.f())) {
+            return false;
+         } else {
+            Vec3d var4 = MineController.this.mc.player.getEyePos();
+            Direction var5 = var1.f();
+            Vec3d var6 = Cells.drillFacePoint(MineController.this.mc, var4, var3, var5, MineController.this.reach());
+            if (var6 == null) {
+               for (Direction var10 : Direction.values()) {
+                  if (var10 != var1.f() && (this.activeDig == null || this.activeDig.strikeAllowed(MineController.this.mc, var3, var10))) {
+                     var6 = Cells.drillFacePoint(MineController.this.mc, var4, var3, var10, MineController.this.reach());
+                     if (var6 != null) {
+                        var5 = var10;
+                        break;
+                     }
+                  }
+               }
+            }
+
+            if (var6 == null || MineController.this.protectedFooting(var3, var5)) {
+               return false;
+            } else if (!MineController.this.equipPick()) {
+               return !var2;
+            } else {
+               if (!var3.equals(this.drillAt)) {
+                  this.drillAt = var3.toImmutable();
+                  this.drillSince = this.age;
+                  this.drillBefore = null;
+               }
+
+               if (!var2) {
+                  Keys.releaseMove(MineController.this.mc);
+               }
+
+               BotInput.INSTANCE.sneaking = false;
+               MineController.this.look(var6);
+               MineController.this.status = "Đào đường: " + Cells.state(MineController.this.mc, var3).getBlock().getName().getString();
+               if (BotInput.INSTANCE.sneakFree >= 1 && MineController.this.drillCrosshairOn(var3, var5)) {
+                  if (this.drillBefore == null) {
+                     this.drillBefore = new ArrayList<>();
+
+                     for (BlockPos var8 : Cells.plane(var3, var5)) {
+                        if (!var8.equals(var3) && Cells.mineable(MineController.this.mc, var8)) {
+                           this.drillBefore.add(var8.toImmutable());
+                        }
+                     }
+                  }
+
+                  MineController.this.mc.interactionManager.updateBlockBreakingProgress(var3, var5);
+                  MineController.this.mc.player.swingHand(Hand.MAIN_HAND);
+                  if (!Cells.mineable(MineController.this.mc, var3)) {
+                     MineController.this.strikes++;
+                     MineController.this.recentStrikes.put(var3.toImmutable(), MineController.this.ticks);
+                     MineController.this.deferCheck(var3, this.drillBefore);
+                     this.drillAt = null;
+                     return true;
+                  }
+               }
+
+               if (this.age - this.drillSince > Cells.breakTicks(MineController.this.mc, var3) * 2.0 + 60.0) {
+                  MineController.this.mc.interactionManager.cancelBlockBreaking();
+                  this.drillFails++;
+                  this.drillAt = null;
+                  return false;
+               } else {
+                  return true;
+               }
+            }
+         }
+      }
+
       /** 1.14.0: bước giữa đường đi thẳng → vào tới ô là tính đã qua, không phải đứng vào tâm ô rồi mới đi tiếp. */
       private boolean through(int var1) {
          if (this.path != null && var1 < this.path.size()) {
             PathFinder.Step var2 = this.path.get(var1);
-            if (var2.mine() || var2.kind() == PathFinder.Kind.PILLAR || var2.kind() == PathFinder.Kind.BRIDGE) {
+            if (var1 == this.path.size() - 1 && this.directPath && this.goalTest == null && var2.kind() != PathFinder.Kind.PILLAR && var2.kind() != PathFinder.Kind.BRIDGE) {
+               // 1.14.2: bước của đường thẳng (kể cả ô vừa đào) chưa phải đích → đi qua luôn, không hãm / ngồi
+               return !var2.feet().equals(this.goal);
+            } else if (var2.mine() || var2.kind() == PathFinder.Kind.PILLAR || var2.kind() == PathFinder.Kind.BRIDGE) {
                return false;
             } else if (var1 == this.path.size() - 1) {
-               return this.directPath && this.goalTest == null && !var2.feet().equals(this.goal);
+               return false;
             } else {
                PathFinder.Kind var3 = this.path.get(var1 + 1).kind();
                return var3 == PathFinder.Kind.WALK || var3 == PathFinder.Kind.JUMP;
@@ -4525,36 +4775,55 @@ public final class MineController {
          return false;
       }
 
+      /** chạy việc con; null = việc con vừa xong, đi tiếp ngay trong tick này (1.14.2: trước đây mất 1 tick đứng yên) */
+      private MineController.Result tickSub() {
+         MineController.Result var14 = this.sub.tick();
+         if (var14 == MineController.Result.RUNNING) {
+            return var14;
+         } else {
+            String var18 = this.sub.why;
+            boolean var23 = this.sub instanceof MineController.PlugTask;
+            if (var14 == MineController.Result.FAILED && this.directPath && this.path != null && this.idx < this.path.size()) {
+               MineController.this.avoid.add(this.path.get(this.idx).feet());
+            }
+
+            this.sub.finish();
+            this.sub = null;
+            if (var14 == MineController.Result.FAILED) {
+               if (var23 && this.path != null && this.idx < this.path.size()) {
+                  MineController.this.avoid.add(this.path.get(this.idx).feet());
+               }
+
+               this.path = null;
+               if (++this.replans > 4) {
+                  return this.failWith("không phá/bắc được đường: " + var18);
+               }
+
+               return MineController.Result.RUNNING;
+            } else {
+               return null;
+            }
+         }
+      }
+
+      /** bắt đầu việc con và chạy luôn tick đầu của nó */
+      private MineController.Result startSub(MineController.Task var1) {
+         this.sub = var1;
+         MineController.Result var2 = this.tickSub();
+         return var2 != null ? var2 : MineController.Result.RUNNING;
+      }
+
       @Override
       MineController.Result tick() {
          this.age++;
          if (this.sub != null) {
-            MineController.Result var14 = this.sub.tick();
-            if (var14 == MineController.Result.RUNNING) {
-               return var14;
-            } else {
-               String var18 = this.sub.why;
-               boolean var23 = this.sub instanceof MineController.PlugTask;
-               if (var14 == MineController.Result.FAILED && this.directPath && this.path != null && this.idx < this.path.size()) {
-                  MineController.this.avoid.add(this.path.get(this.idx).feet());
-               }
-
-               this.sub.finish();
-               this.sub = null;
-               if (var14 == MineController.Result.FAILED) {
-                  if (var23 && this.path != null && this.idx < this.path.size()) {
-                     MineController.this.avoid.add(this.path.get(this.idx).feet());
-                  }
-
-                  this.path = null;
-                  if (++this.replans > 4) {
-                     return this.failWith("không phá/bắc được đường: " + var18);
-                  }
-               }
-
-               return MineController.Result.RUNNING;
+            MineController.Result var40 = this.tickSub();
+            if (var40 != null) {
+               return var40;
             }
-         } else {
+         }
+
+         {
             BlockPos var3 = MineController.this.feet();
             if (this.arrived(var3)) {
                double var17 = this.goalTest != null ? 0.0 : Keys.drive(MineController.this.mc, this.goal.getX() + 0.5, this.goal.getZ() + 0.5, this.tol, true);
@@ -4635,7 +4904,8 @@ public final class MineController {
 
                   BlockPos var21 = this.goal;
                   Predicate var24 = this.goalTest != null ? this.goalTest : var1x -> var1x.equals(var21);
-                  Keys.releaseMove(MineController.this.mc);
+                  // 1.14.2: đi trong một tầng (Y cố định) → được xuống hố nông 1 ô rồi bước lên thay vì bắc cầu
+                  boolean var41 = var2 == var4 && !this.waterAccess;
                   PathFinder.Step var7 = this.replans < 2 && this.directRejects < 3
                      ? DirectRoute.next(
                         MineController.this.mc,
@@ -4644,10 +4914,11 @@ public final class MineController {
                         this.activeDig,
                         MineController.this.fillerCount() > 0,
                         this.waterAccess,
-                        MineController.this.avoid
+                        MineController.this.avoid,
+                        var41
                      )
                      : null;
-                  if (var7 != null && var7.feet().getY() >= var2 && var7.feet().getY() <= var4) {
+                  if (var7 != null && var7.feet().getY() >= var2 - (var41 ? 1 : 0) && var7.feet().getY() <= var4) {
                      this.path = List.of(new PathFinder.Step(var3, false, PathFinder.Kind.WALK), var7);
                      this.directPath = true;
                      this.routeSearch = null;
@@ -4664,11 +4935,16 @@ public final class MineController {
                            this.activeDig != null && this.activeDig.pillar,
                            MineController.this.avoid
                         );
+                        if (var41) {
+                           var8.dipY = var2 - 1;
+                        }
+
                         this.routeSearch = var8.new Search(var24, this.goalTest == null, this.maxNodes);
                      }
 
                      this.routeSearch.advance();
                      if (!this.routeSearch.done()) {
+                        Keys.releaseMove(MineController.this.mc);
                         MineController.this.status = "Tìm đường đi/bắc cầu: " + this.what;
                         return MineController.Result.RUNNING;
                      }
@@ -4752,6 +5028,18 @@ public final class MineController {
 
                   if (this.idx >= this.path.size()) {
                      this.path = null;
+                     if (this.directPath && !this.reentered) {
+                        // 1.14.2: hết bước đường thẳng → tính bước mới và đi luôn trong tick này (trước đây đứng 1 tick, lại bị ngồi ở mép hố)
+                        this.reentered = true;
+
+                        try {
+                           this.age--;
+                           return this.tick();
+                        } finally {
+                           this.reentered = false;
+                        }
+                     }
+
                      return !this.directPath && ++this.replans > 6 ? this.failWith("Đi mãi không tới") : MineController.Result.RUNNING;
                   } else {
                      PathFinder.Step var16 = this.path.get(this.idx);
@@ -4768,7 +5056,7 @@ public final class MineController {
                      } else if (this.directPath
                         && var16.kind() == PathFinder.Kind.WALK
                         && var22.getY() == var3.getY()
-                        && var22.getSquaredDistance(var3) > 1.0
+                        && var22.getSquaredDistance(var3) > 2.0
                         && !DirectRoute.clearSegment(
                            MineController.this.mc, MineController.this.mc.player.getPos(), var22, this.waterAccess, MineController.this.avoid
                         )) {
@@ -4783,15 +5071,12 @@ public final class MineController {
                         return MineController.Result.RUNNING;
                      } else if (var16.kind() == PathFinder.Kind.JUMP) {
                         MineController.JumpTask var27 = MineController.this.new JumpTask(var3, var22);
-                        if (this.idx + 1 < this.path.size()) {
-                           BlockPos var28 = this.path.get(this.idx + 1).feet();
-                           var27.straightAfter = var28.getY() == var22.getY()
-                              && Integer.signum(var28.getX() - var22.getX()) == var27.sx
-                              && Integer.signum(var28.getZ() - var22.getZ()) == var27.sz;
-                        }
-
-                        this.sub = var27;
-                        return MineController.Result.RUNNING;
+                        // 1.14.2: sau ô đáp còn đi tiếp về phía trước (kể cả đường thẳng tới đích) → không hãm khi đáp
+                        BlockPos var28 = this.idx + 1 < this.path.size() ? this.path.get(this.idx + 1).feet() : (this.directPath ? this.goal : null);
+                        var27.straightAfter = var28 != null
+                           && var28.getY() == var22.getY()
+                           && (var28.getX() - var22.getX()) * var27.sx + (var28.getZ() - var22.getZ()) * var27.sz > 0;
+                        return this.startSub(var27);
                      } else if (var16.kind() == PathFinder.Kind.BRIDGE && !Cells.floor(MineController.this.mc, var22.down())) {
                         Keys.releaseMove(MineController.this.mc);
                         BotInput.INSTANCE.sneaking = true;
@@ -4810,7 +5095,7 @@ public final class MineController {
                         || (
                               this.waterAccess
                                  ? DirectRoute.body(MineController.this.mc, var22, true) && Cells.floor(MineController.this.mc, var22.down())
-                                 : Cells.standable(MineController.this.mc, var22)
+                                 : Cells.standable(MineController.this.mc, var22) || Cells.wading(MineController.this.mc, var22)
                            )
                            && !ServerSync.pending(MineController.this.mc, var22.down())) {
                         if (var16.kind() == PathFinder.Kind.PILLAR) {
@@ -4841,10 +5126,23 @@ public final class MineController {
                                  return MineController.Result.RUNNING;
                               }
 
-                              if (var12 != null) {
-                                 Keys.releaseMove(MineController.this.mc);
-                                 this.sub = MineController.this.new StrikeTask(var12.c(), var12.f(), "phá đường", false);
+                              if (var12 != null && MineController.this.expectedGone(var12.c())) {
+                                 // 1.14.2: khối này sẽ vỡ theo nhát 3x3 vừa rồi — chờ server báo, không đập lại; vẫn bước tới (khối chặn thì đứng sát)
+                                 MineController.this.lookAlongTravel(var22.getX() + 0.5, var22.getZ() + 0.5);
+                                 BotInput.INSTANCE.sneaking = false;
+                                 Keys.driveStep(MineController.this.mc, var22.getX() + 0.5, var22.getZ() + 0.5, 0.18, false, var22.getY());
+                                 MineController.this.status = "Chờ 3x3 vỡ nốt: " + var12.c().toShortString();
                                  return MineController.Result.RUNNING;
+                              }
+
+                              if (var12 != null) {
+                                 // 1.14.2: đào liền ngay trong lúc đi (giữ chuột, vỡ là đi tiếp), chỉ giao cho StrikeTask khi không đào thẳng được
+                                 if (this.drill(var12, false)) {
+                                    return MineController.Result.RUNNING;
+                                 }
+
+                                 Keys.releaseMove(MineController.this.mc);
+                                 return this.startSub(MineController.this.new StrikeTask(var12.c(), var12.f(), "phá đường", false));
                               }
 
                               if (var16.kind() == PathFinder.Kind.DIGDOWN) {
@@ -4888,7 +5186,24 @@ public final class MineController {
 
                            BlockPos var32 = this.path.get(var29).feet();
                            boolean var33 = var29 == this.path.size() - 1 && !this.through(var29);
-                           MineController.this.lookAlongTravel(var32.getX() + 0.5, var32.getZ() + 0.5);
+                           // 1.14.2: ô sau ô đang tới cần đào mà đã với tới → vừa đi vừa đào luôn
+                           boolean var35 = false;
+                           BlockPos var37 = this.idx + 1 < this.path.size() ? this.path.get(this.idx + 1).feet() : (this.directPath ? this.towardGoal(var22) : null);
+                           if (this.activeDig != null && var29 == this.idx && var37 != null && var22.getY() == var3.getY()) {
+                              PathFinder.Strike var36 = PathFinder.strikeFor(MineController.this.mc, var22, var37);
+                              if (var36 != null
+                                 && var36 != PathFinder.INVALID
+                                 && !MineController.this.expectedGone(var36.c())
+                                 && this.activeDig.strikeAllowed(MineController.this.mc, var36.c(), var36.f())) {
+                                 var35 = this.drill(var36, true);
+                              }
+                           }
+
+                           if (!var35) {
+                              MineController.this.lookAlongTravel(var32.getX() + 0.5, var32.getZ() + 0.5);
+                           }
+
+                           BotInput.INSTANCE.sneaking = false;
                            if (var22.getY() != var3.getY()) {
                               this.airGoal = var22;
                               this.airGoalAge = this.age;

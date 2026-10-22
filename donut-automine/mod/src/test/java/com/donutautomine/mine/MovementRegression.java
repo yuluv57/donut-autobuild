@@ -144,6 +144,65 @@ public final class MovementRegression {
       double sprint = Parkour.simulateCross(0.3, 0.28, true, 0.6F, 1, 2, 0);
       check(!Double.isNaN(sprint) && sprint >= 2.55, "chạy nhanh nhảy khe 2 ô tới được: " + sprint);
       check(Parkour.gap(2, 0) == 1 && Parkour.gap(0, -3) == 2 && Parkour.gap(1, 1) == 0, "đếm khe");
+      System.out.println("[Movement] 1.14.2: đi chéo sát góc hố, rãnh nông, nước nông");
+      w.clear();
+      floor(w, 0, 12, 0, 12);
+      hole(w, 1, 0, 1);
+      use(w);
+      List<PathSearch.Edge> diag = new AutoBuildNavigation(null, new BlockPos(0, 0, 1), null, 0, 0, false, false, new HashSet<>())
+         .neighbors(AutoBuildNavigation.cell(new BlockPos(0, 0, 1)));
+      check(diag.stream().anyMatch(e -> e.to().equals(AutoBuildNavigation.cell(new BlockPos(1, 0, 2)))), "bước chéo (0,1)→(1,2) khi ô vuông góc (1,0) là hố: được (như AutoBuild)");
+      List<PathFinder.Step> rd = route(new BlockPos(0, 0, 0), new BlockPos(8, 0, 8), false);
+      long diagSteps = 0;
+      for (int i = 1; i < rd.size(); i++) {
+         if (rd.get(i).feet().getX() != rd.get(i - 1).feet().getX() && rd.get(i).feet().getZ() != rd.get(i - 1).feet().getZ()) {
+            diagSteps++;
+         }
+      }
+
+      check(rd.size() <= 10 && diagSteps >= 6, "đường (0,0)→(8,8) đi chéo: " + (rd.size() - 1) + " bước, " + diagSteps + " bước chéo");
+      Map<BlockPos, Integer> w3 = new HashMap<>();
+      floor(w3, 0, 12, 0, 12);
+      for (int x = 0; x <= 12; x++) {
+         for (int y = 0; y <= 1; y++) {
+            w3.put(new BlockPos(x, y, -1), 1);
+            w3.put(new BlockPos(x, y, 1), 1);
+         }
+      }
+
+      for (int x = 3; x <= 6; x++) {
+         hole(w3, x, 0, 1);
+      }
+
+      use(w3);
+      PathFinder.Step dd = DirectRoute.next(null, new BlockPos(2, 0, 0), new BlockPos(10, 0, 0), null, true, false, new HashSet<>(), true);
+      check(dd != null && dd.kind() == PathFinder.Kind.WALK && dd.feet().equals(new BlockPos(3, -1, 0)), "rãnh rộng 4 sâu 1 (không nhảy được), đi trong tầng → bước xuống rãnh: " + dd);
+      PathFinder.Step dn = DirectRoute.next(null, new BlockPos(2, 0, 0), new BlockPos(10, 0, 0), null, true, false, new HashSet<>(), false);
+      check(dn != null && !(dn.kind() == PathFinder.Kind.WALK && dn.feet().getY() < 0), "không cho xuống hố → không bước xuống rãnh: " + dn);
+      AutoBuildNavigation nd = new AutoBuildNavigation(null, new BlockPos(0, 0, 0), new BlockPos(10, 0, 0), 0, 0, true, false, new HashSet<>());
+      nd.dipY = -1;
+      PathSearch sd = new PathSearch(AutoBuildNavigation.cell(new BlockPos(0, 0, 0)), List.of(AutoBuildNavigation.cell(new BlockPos(10, 0, 0))), nd, 6000);
+      while (!sd.done()) {
+         sd.advance(1000);
+      }
+
+      check(sd.result() != null && sd.result().stream().anyMatch(c -> c.y() == -1) && sd.result().stream().noneMatch(c -> c.y() < -1),
+         "A* trong tầng: qua rãnh bằng cách xuống 1 ô rồi lên, không bắc cầu: " + sd.result());
+      Map<BlockPos, Integer> w4 = new HashMap<>();
+      floor(w4, 0, 12, 0, 12);
+      for (int x = 0; x <= 12; x++) {
+         for (int y = 0; y <= 1; y++) {
+            w4.put(new BlockPos(x, y, -1), 1);
+            w4.put(new BlockPos(x, y, 1), 1);
+         }
+      }
+
+      w4.put(new BlockPos(4, 0, 0), 4);
+      w4.put(new BlockPos(5, 0, 0), 4);
+      use(w4);
+      check(Cells.wading(null, new BlockPos(4, 0, 0)), "ô nước nông (chân ngập, đầu khô, có sàn) lội được");
+      List<PathFinder.Step> rw = route(new BlockPos(0, 0, 0), new BlockPos(8, 0, 0), false);
+      check(rw != null && rw.stream().anyMatch(st -> st.feet().equals(new BlockPos(4, 0, 0))), "hành lang có nước nông → lội qua: " + rw);
       Cells.probe = null;
       System.out.println("MovementRegression: " + passed + " phép kiểm tra đạt");
    }

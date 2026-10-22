@@ -38,6 +38,25 @@ public final class SafeMotion {
       }
    }
 
+   /** 1.14.2: ít nhất 2 trong 4 góc chân trên sàn → không rơi (vanilla chỉ cần 1, giữ dư 1 góc phòng lệch) */
+   public static boolean supportedAny(MinecraftClient var0, double var1, double var3, int var5, int var6) {
+      int var7 = 0;
+
+      for (double var10 : new double[]{-0.28, 0.28}) {
+         for (double var15 : new double[]{-0.28, 0.28}) {
+            for (int var18 = var5; var18 >= var6 - 1; var18--) {
+               BlockPos var19 = BlockPos.ofFloored(var1 + var10, var18, var3 + var15);
+               if (Cells.loaded(var0, var19) && Cells.floor(var0, var19)) {
+                  var7++;
+                  break;
+               }
+            }
+         }
+      }
+
+      return var7 >= 2;
+   }
+
    public static boolean safeDirection(MinecraftClient var0, double var1, double var3, int var5) {
       double var6 = var0.player.getX();
       double var8 = var0.player.getZ();
@@ -47,7 +66,8 @@ public final class SafeMotion {
          double var12 = var11 / 3.0;
          double var14 = var6 + (var0.player.getVelocity().x * 3.0 + var1 * 0.26) * var12;
          double var16 = var8 + (var0.player.getVelocity().z * 3.0 + var3 * 0.26) * var12;
-         if (!supported(var0, var14, var16, var10, var5)) {
+         // 1.14.2: đang đi chỉ dừng khi chỗ sắp tới không còn góc chân nào có sàn (trước đây thiếu 1 góc là dừng + ngồi)
+         if (!supportedAny(var0, var14, var16, var10, var5)) {
             return false;
          }
       }

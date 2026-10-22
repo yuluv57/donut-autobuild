@@ -47,3 +47,10 @@ fabricApi {
         eula = true
     }
 }
+// -Ptrace=A,F: ghi log mỗi tick cho các ca đó; -Ponly=A,F: chỉ chạy các ca đó
+loom {
+    runs.matching { it.name == 'clientGameTest' }.configureEach {
+        vmArg "-Ddonutautomine.trace=${project.findProperty('trace') ?: ''}"
+        vmArg "-Ddonutautomine.only=${project.findProperty('only') ?: ''}"
+    }
+}

@@ -312,6 +312,37 @@ public final class Cells {
          : false;
    }
 
+   /**
+    * 1.14.2 (theo AutoBuild 3.0.84): nước nông — ô chân có nước (không lava, không khối ngập nước có va chạm), đầu ở ngoài nước,
+    * dưới chân là sàn → lội qua được (chậm hơn ô khô). Trước đây mọi ô có nước đều coi là không đi được.
+    */
+   public static boolean wading(MinecraftClient var0, BlockPos var1) {
+      if (!loaded(var0, var1) || !loaded(var0, var1.up())) {
+         return false;
+      } else if (probe != null) {
+         return probe.kind(var1) == 4 && probe.kind(var1.up()) == 0 && floor(var0, var1.down());
+      } else {
+         BlockState var2 = state(var0, var1);
+         if (water(var2) && !lava(var2) && var2.getCollisionShape(var0.world, var1).isEmpty() && passable(var0, var1.up()) && floor(var0, var1.down())) {
+            for (Direction var4 : Type.HORIZONTAL) {
+               if (lava(state(var0, var1.offset(var4))) || lava(state(var0, var1.up().offset(var4)))) {
+                  return false;
+               }
+            }
+
+            return !hazardAt(var0, var1.up(2))
+               && var0.world.getWorldBorder().contains(var1)
+               && var0.world
+                  .isSpaceEmpty(
+                     var0.player,
+                     new Box(var1.getX() + 0.18, var1.getY() + 0.01, var1.getZ() + 0.18, var1.getX() + 0.82, var1.getY() + 1.81, var1.getZ() + 0.82)
+                  );
+         } else {
+            return false;
+         }
+      }
+   }
+
    public static boolean scaffoldAt(MinecraftClient var0, BlockPos var1) {
       if (loaded(var0, var1) && !hazardAt(var0, var1) && !fluidAt(var0, var1)) {
          return probe != null ? probe.kind(var1) == 0 : state(var0, var1).isAir();
