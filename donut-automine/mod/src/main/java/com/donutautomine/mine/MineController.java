@@ -5564,7 +5564,7 @@ public final class MineController {
                   && Cells.mineable(MineController.this.mc, var8)
                   && !MineController.this.waterDams.contains(var8)
                   && !MineController.this.gaveUp.contains(var8)
-                  && this.drill(new MineController.Hit(var8, var3.getOpposite()), false)) {
+                  && this.drill(new PathFinder.Strike(var8, var3.getOpposite()), false)) {
                   return true;
                }
             }

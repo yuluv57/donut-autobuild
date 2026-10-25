@@ -34,7 +34,8 @@ import net.minecraft.util.math.Direction;
  * K/K2) khối giữa lát bị server trả lại 2 / 6 lần → thang đổi góc (lùi, lùi, trái, phải, ngồi), không đập khối xung quanh, quá 5 lần để cuối tầng;
  * K3) 3x3 vỡ nhưng riêng khối giữa hiện lại 3 lần; K4) 2 khối giữa hiện lại, khối gần che khối xa;
  * K5) sỏi rơi xuống nằm đúng chỗ khối giữa (khối dưới bị 3x3 bỏ sót) như ảnh "lần 0 · đập"; K6) khối không bao giờ phá được → không tự dừng;
- * K7) đang đào bị ép "làm lại vì kẹt" 3 kiểu → vẫn đào sạch; K8) bedrock giữa hàng che kín lát sau → đi vòng qua làn bên.
+ * K7) đang đào bị ép "làm lại vì kẹt" 3 kiểu → vẫn đào sạch; K8) bedrock giữa hàng che kín lát sau → đi vòng qua làn bên;
+ * L1) hố sâu 2 ô giữa sàn tầng đã đào → đi vòng, không bắc cầu; L2) đứng dưới đáy hố sâu 2 ô → ra bằng đi bộ / đào bậc, không kê cột.
  */
 public final class AutoMineClientTest implements FabricClientGameTest {
    static final List<String> RESULTS = new ArrayList<>();
@@ -245,6 +246,14 @@ public final class AutoMineClientTest implements FabricClientGameTest {
 
          if (on("K8")) {
             this.detour(ctx, sp);
+         }
+
+         if (on("L1")) {
+            this.deepHole(ctx, sp);
+         }
+
+         if (on("L2")) {
+            this.pitEscape(ctx, sp);
          }
       } catch (Exception e) {
          throw new RuntimeException(e);
@@ -775,6 +784,12 @@ public final class AutoMineClientTest implements FabricClientGameTest {
       ctx.waitTicks(30);
    }
 
+   /** chiều cao khung (đỉnh luôn ở y=102) cho runMine */
+   int layersY = 3;
+   /** chạy hook này ở tick thứ hookAt của runMine (vd. đẩy nhân vật xuống hố giữa chừng) */
+   int hookAt = -1;
+   java.util.function.Consumer<MinecraftClient> hook;
+
    int runMine(ClientGameTestContext ctx, String tag, int x0, int z0, int sx, int sz, int max) throws Exception {
       return this.runMine(ctx, tag, x0, z0, sx, sz, max, 0);
    }
@@ -788,13 +803,15 @@ public final class AutoMineClientTest implements FabricClientGameTest {
          AutoMineMod.config.regionTopY = 102;
          AutoMineMod.config.regionZ = z0;
          AutoMineMod.config.regionSizeX = sx;
-         AutoMineMod.config.regionSizeY = 3;
+         AutoMineMod.config.regionSizeY = this.layersY;
          AutoMineMod.config.regionSizeZ = sz;
          set(AutoMineMod.controller, "region", null);
          AutoMineMod.controller.resetProgress();
          AutoMineMod.controller.start();
       });
       List<String> idle = new ArrayList<>();
+      int place0 = Fake3x3Pickaxe.placements.get();
+      int[] seen = {0};
       double[] last = {Double.NaN, 0};
       int[] still = {0, 0, -1};
       int[] lastAge = {-1};
@@ -808,6 +825,10 @@ public final class AutoMineClientTest implements FabricClientGameTest {
          }
 
          lastAge[0] = mc.player.age;
+         if (++seen[0] == this.hookAt && this.hook != null) {
+            this.hook.accept(mc);
+         }
+
          boolean moved = Double.isNaN(last[0]) || Math.hypot(mc.player.getX() - last[0], mc.player.getZ() - last[1]) > 0.01;
          last[0] = mc.player.getX();
          last[1] = mc.player.getZ();
@@ -825,7 +846,7 @@ public final class AutoMineClientTest implements FabricClientGameTest {
       }, max);
       int left = ctx.computeOnClient(mc -> {
          int n = 0;
-         for (BlockPos p : BlockPos.iterate(x0, 100, z0, x0 + sx - 1, 102, z0 + sz - 1)) {
+         for (BlockPos p : BlockPos.iterate(x0, 103 - this.layersY, z0, x0 + sx - 1, 102, z0 + sz - 1)) {
             if (!mc.world.getBlockState(p).isAir()) {
                n++;
             }
@@ -835,7 +856,7 @@ public final class AutoMineClientTest implements FabricClientGameTest {
       });
       int placed = ctx.computeOnClient(mc -> {
          int n = 0;
-         for (BlockPos p : BlockPos.iterate(x0 - 10, 99, z0 - 3, x0 + sx - 1, 99, z0 + sz + 2)) {
+         for (BlockPos p : BlockPos.iterate(x0 - 10, 95, z0 - 3, x0 + sx - 1, 102, z0 + sz + 2)) {
             if (mc.world.getBlockState(p).isOf(Blocks.COBBLESTONE)) {
                n++;
             }
@@ -843,6 +864,8 @@ public final class AutoMineClientTest implements FabricClientGameTest {
 
          return n;
       });
+      // đặt khối tính lúc đặt (khối kê cột / bắc cầu có thể bị đào lại về sau)
+      placed = Math.max(placed, Fake3x3Pickaxe.placements.get() - place0);
       String status = ctx.computeOnClient(mc -> AutoMineMod.controller.status());
       // không tự dừng = còn chạy hoặc đã đào xong khung (không phải bị tạm dừng)
       boolean running = ctx.computeOnClient(mc -> AutoMineMod.controller.running() || AutoMineMod.controller.state() == MineController.State.DONE);
@@ -857,7 +880,7 @@ public final class AutoMineClientTest implements FabricClientGameTest {
 
       check(left == 0, tag + ": đào sạch trong " + t + " tick (còn " + left + " ô, trạng thái: " + status + ")");
       check(still[1] == 0, tag + ": không lần nào đứng im ≥ 3 giây (" + still[1] + " lần: " + idle + ")");
-      check(placed == 0, tag + ": không lấp rãnh (" + placed + " cobble)");
+      check(placed == 0, tag + ": không đặt khối (lấp / bắc cầu / kê cột: " + placed + " cobble)");
       return t;
    }
 
@@ -1077,5 +1100,33 @@ public final class AutoMineClientTest implements FabricClientGameTest {
          "setblock " + (x0 + 4) + " 101 401 bedrock"
       ), true, new int[0][], x0 - 1.5, 401.5);
       this.runMine(ctx, "K8", x0, 400, 10, 3, 2400, 1);
+   }
+
+   /** L1: tầng đã đào, giữa sàn có hố 3x3 sâu 2 ô, khối sót bên kia, có đường vòng → đi vòng, không bắc cầu */
+   void deepHole(ClientGameTestContext ctx, TestSingleplayerContext sp) throws Exception {
+      int x0 = 600;
+      int[][] left = {{610, 100, 304}, {611, 101, 303}, {612, 100, 305}};
+      this.trenchWorld(ctx, sp, x0, 300, 14, 9, List.of("fill 605 98 303 607 99 305 air"), false, left, 603.5, 304.5);
+      this.runMine(ctx, "L1", x0, 300, 14, 9, 1500);
+   }
+
+   /**
+    * L2: đang đào tầng 1 (sàn tầng đã đào, còn khối sót) thì bị đẩy xuống đáy hố sâu 2 ô (3x3) nằm trong tầng 2 còn đá
+    * → ra khỏi hố bằng đi bộ / đào bậc, không kê cột, rồi đào tiếp.
+    */
+   void pitEscape(ClientGameTestContext ctx, TestSingleplayerContext sp) throws Exception {
+      int x0 = 630;
+      int[][] left = {{636, 101, 307}, {631, 100, 301}, {637, 100, 302}};
+      this.trenchWorld(ctx, sp, x0, 300, 8, 9, List.of("fill 634 98 303 636 99 305 air"), false, left, 632.5, 304.5);
+      this.layersY = 6;
+      this.hookAt = 30;
+      this.hook = mc -> mc.getServer().execute(() -> mc.getServer().getCommandManager().executeWithPrefix(mc.getServer().getCommandSource(), "tp @a 635.5 98 304.5"));
+      try {
+         this.runMine(ctx, "L2", x0, 300, 8, 9, 6000);
+      } finally {
+         this.layersY = 3;
+         this.hookAt = -1;
+         this.hook = null;
+      }
    }
 }

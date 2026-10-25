@@ -8,6 +8,9 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.Set;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
+import net.fabricmc.fabric.api.event.player.UseBlockCallback;
+import net.minecraft.item.BlockItem;
+import net.minecraft.util.ActionResult;
 import net.minecraft.block.entity.BlockEntity;
 import net.fabricmc.fabric.api.event.player.PlayerBlockBreakEvents;
 import net.minecraft.block.BlockState;
@@ -33,6 +36,8 @@ public final class Fake3x3Pickaxe implements ModInitializer {
    /** ô → số tick sau khi vỡ thì server đặt lại khối đó (1 lần) */
    public static final Map<BlockPos, Integer> restoreLater = new ConcurrentHashMap<>();
    private static final List<Object[]> pending = Collections.synchronizedList(new ArrayList<>());
+   /** số lần người chơi đặt khối (chuột phải cầm khối) — kiểm tra "không bắc cầu / kê cột" */
+   public static final java.util.concurrent.atomic.AtomicInteger placements = new java.util.concurrent.atomic.AtomicInteger();
    /** mọi nhát phá của người chơi (không tính 8 khối 3x3 kéo theo): {ô, x, z, đang ngồi, bị huỷ} */
    public static final List<Object[]> attempts = Collections.synchronizedList(new ArrayList<>());
 
@@ -40,6 +45,13 @@ public final class Fake3x3Pickaxe implements ModInitializer {
    public void onInitialize() {
       PlayerBlockBreakEvents.BEFORE.register(Fake3x3Pickaxe::beforeBreak);
       PlayerBlockBreakEvents.AFTER.register(Fake3x3Pickaxe::afterBreak);
+      UseBlockCallback.EVENT.register((player, world, hand, hit) -> {
+         if (!world.isClient && player.getStackInHand(hand).getItem() instanceof BlockItem) {
+            placements.incrementAndGet();
+         }
+
+         return ActionResult.PASS;
+      });
       ServerTickEvents.END_SERVER_TICK.register(server -> {
          synchronized (pending) {
             pending.removeIf(o -> {
