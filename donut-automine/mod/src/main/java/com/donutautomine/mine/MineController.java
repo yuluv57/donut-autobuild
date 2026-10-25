@@ -289,6 +289,7 @@ public final class MineController {
             this.fails.clear();
             this.waterDams.clear();
             this.clearMiddleTries();
+            this.resumedRows.clear();
             this.waterReplacements.clear();
             this.retryAt.clear();
             if (this.regionKey().equals(this.config.waterDamRegion) && this.config.waterDamCells != null) {
@@ -396,6 +397,7 @@ public final class MineController {
 
    public void resetProgress() {
       this.layer = -1;
+      this.recoveries = 0;
       this.plan = null;
       this.laneSweep = null;
       this.skipped.clear();
@@ -404,6 +406,7 @@ public final class MineController {
       this.fails.clear();
       this.strikes = 0;
       this.clearMiddleTries();
+      this.resumedRows.clear();
       this.cleared = 0;
       this.retryAt.clear();
       this.layerQuietSince = this.finalQuietSince = -1;
@@ -750,6 +753,7 @@ public final class MineController {
       this.fails.clear();
       this.retryAt.clear();
       this.plugFails.clear();
+      // 1.14.6: số lần quay lại hàng để dành giữ nguyên qua lần làm lại vì kẹt (không quay lại mãi)
       this.expected.clear();
       this.recentStrikes.clear();
       this.clearMiddleTries();
@@ -968,7 +972,6 @@ public final class MineController {
       this.middleSeenClear.clear();
       this.middleStrikeAt.clear();
       this.suspendedRows.clear();
-      this.resumedRows.clear();
       this.loopRowAt = null;
    }
 
@@ -1618,6 +1621,7 @@ public final class MineController {
                      this.recentStrikes.clear();
                      this.fails.clear();
                      this.clearMiddleTries();
+                     this.resumedRows.clear();
                      this.avoid.clear();
                      this.badPits.clear();
                      if (this.layer < 0) {
