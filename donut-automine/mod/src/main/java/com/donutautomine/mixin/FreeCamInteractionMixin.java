@@ -44,7 +44,8 @@ public abstract class FreeCamInteractionMixin {
       remap = false
    )
    private void donutautomine$cameraBreaking(boolean var1, CallbackInfo var2) {
-      if (FreeCam.active()) {
+      // 1.14.5: bot giữ chuột đập (MouseHold) thì vẫn cho đập khi đang Freecam
+      if (FreeCam.active() && !com.donutautomine.mine.MouseHold.active()) {
          var2.cancel();
       }
    }

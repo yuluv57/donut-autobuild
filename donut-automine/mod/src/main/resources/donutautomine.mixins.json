@@ -7,6 +7,7 @@
     "CameraMixin",
     "FreeCamLookMixin",
     "FreeCamInteractionMixin",
+    "HoldBreakMixin",
     "FreeCamFogMixin",
     "FreeCamOverlayMixin",
     "FreeCamTerrainMixin",

@@ -360,6 +360,7 @@ public final class MineController {
    }
 
    private void stopActions() {
+      MouseHold.release();
       if (this.task != null) {
          this.task.abort();
       }
@@ -479,6 +480,7 @@ public final class MineController {
    }
 
    private void tickInner() {
+      this.consumeBreak();
       GuiWatch.tick(this.mc);
       this.ghost.tick(this.mc);
       if (!this.sellJob.active() && !this.shop.active() && !(this.task instanceof MineController.FillerSupplyTask)) {
@@ -888,6 +890,55 @@ public final class MineController {
       AutoMineMod.LOGGER.info("[AutoMine] Thử lại ô {} sau {} lần: {}", new Object[]{var1.toShortString(), var3, var2});
    }
 
+   /** 1.14.5: khối bot đang giữ chuột đập → danh sách ô 3x3 còn lại lúc bắt đầu (để kiểm tra sau nhát) */
+   private int diagLogs;
+   private BlockPos holdPos;
+   private List<BlockPos> holdBefore;
+   private BlockPos lastBroke;
+   private int lastBrokeAt = -100;
+
+   /**
+    * 1.14.5: giữ chuột đập khối var1 (var2 = mặt 3x3 cần cùng trục, null = nhát lẻ). Game tự đập ở lượt đọc phím kế tiếp khi hướng nhìn
+    * server đã nhận trúng khối (MouseHold); khối vỡ thì tick sau consumeBreak() ghi nhận và hẹn kiểm tra server trả lại / 3x3.
+    */
+   void hold(BlockPos var1, Direction var2, List<BlockPos> var3) {
+      if (!var1.equals(this.holdPos)) {
+         this.holdPos = var1.toImmutable();
+         this.holdBefore = var3;
+      }
+
+      MouseHold.want(var1, var2);
+   }
+
+   /** đầu mỗi tick: khối giữ chuột đã vỡ (vỡ lúc game đọc phím) → đếm nhát, hẹn kiểm tra */
+   private void consumeBreak() {
+      if (this.holdPos != null && !MouseHold.wanted() && Cells.loaded(this.mc, this.holdPos) && !Cells.mineable(this.mc, this.holdPos)) {
+         if (this.holdPos.equals(MouseHold.heldPos())) {
+            this.strikes++;
+            this.recentStrikes.put(this.holdPos, this.ticks);
+            this.deferCheck(this.holdPos, this.holdBefore);
+            this.lastBroke = this.holdPos;
+            this.lastBrokeAt = this.ticks;
+         }
+
+         this.holdPos = null;
+         this.holdBefore = null;
+      }
+   }
+
+   /**
+    * 1.14.5: được bắc cầu / kê cột không. Trong tầng thì không (hố lõm thì đi vòng / đi xuống rồi lên / nhảy, không có đường thì đào
+    * phần khác trước — bắc cầu chỉ tạo thêm khối phải đào); chỉ cho khi đã làm lại vì kẹt 3 lần liền mà vẫn không đi đâu được.
+    */
+   boolean bridgeAllowed() {
+      return this.recoveries >= 3 && this.fillerCount() > 0;
+   }
+
+   /** khối var1 vừa vỡ do bot giữ chuột (trong 2 tick gần nhất) */
+   boolean justBroke(BlockPos var1) {
+      return var1.equals(this.lastBroke) && this.ticks - this.lastBrokeAt <= 2;
+   }
+
    /** 1.14.3: số lần đã đập lại khối giữa lát bị server trả lại / vị trí đứng lúc phát hiện lần đầu (gốc của thang đổi góc) */
    private final Map<BlockPos, Integer> middleTries = new HashMap<>();
    private final Map<BlockPos, Vec3d> middleBase = new HashMap<>();
@@ -1013,6 +1064,23 @@ public final class MineController {
                } else if (this.config.ghostResync && (this.threeByThree == null || this.threeByThree)) {
                   this.ghost.request(var8);
                }
+            }
+
+            if (var5.size() - var6 >= 2 && this.diagLogs < 200) {
+               // 1.14.5: chẩn đoán "sót 1 dải giữa các hàng": nhát 3x3 để lại những ô nào (lệch so với khối đập), trục đang nhìn
+               this.diagLogs++;
+               StringBuilder var12 = new StringBuilder();
+
+               for (BlockPos var14 : var5) {
+                  if (Cells.mineable(this.mc, var14)) {
+                     var12.append(' ').append(var14.getX() - var4.getX()).append(',').append(var14.getY() - var4.getY()).append(',').append(var14.getZ() - var4.getZ());
+                  }
+               }
+
+               AutoMineMod.LOGGER.info(
+                  "[AutoMine] 3x3 tại {} còn {}/{} ô:{} (hướng nhìn {})",
+                  new Object[]{var4.toShortString(), var5.size() - var6, var5.size(), var12, BreakGeometry.normal(this.mc.player.getYaw(), this.mc.player.getPitch())}
+               );
             }
 
             this.cleared += var6 + 1;
@@ -1998,7 +2066,7 @@ public final class MineController {
          int var8 = this.layer >= 0 ? this.region.top(this.layer) : var4.getY() + 2;
          boolean var9 = var4.getY() == var7 && this.mc.player.isOnGround();
          List<Entry<BlockPos, Integer>> var10 = new ArrayList<>(
-            PathFinder.distances(this.mc, var4, 14, var7, var7, 3000, this.avoid, this.fillerCount() > 0).entrySet()
+            PathFinder.distances(this.mc, var4, 14, var7, var7, 3000, this.avoid, this.bridgeAllowed()).entrySet()
          );
          var10.sort(Comparator.comparingInt(Entry::getValue));
          double var11 = -Double.MAX_VALUE;
@@ -2098,7 +2166,7 @@ public final class MineController {
    }
 
    private BlockPos findStand(BlockPos var1, Direction var2, int var3, int var4, boolean var5, Set<BlockPos> var6) {
-      Map<BlockPos, Integer> var7 = PathFinder.distances(this.mc, this.feet(), 16, var3, var4, 4000, this.avoid, this.fillerCount() > 0);
+      Map<BlockPos, Integer> var7 = PathFinder.distances(this.mc, this.feet(), 16, var3, var4, 4000, this.avoid, this.bridgeAllowed());
       List<BlockPos> var8 = !var5 && !Boolean.FALSE.equals(this.threeByThree) ? Cells.plane(var1, var2) : List.of(var1);
       BlockPos var9 = null;
       double var10 = Double.MAX_VALUE;
@@ -2204,7 +2272,7 @@ public final class MineController {
 
       @Override
       String label() {
-         return "Bắc cầu/cột lên lại sàn Y=" + this.target;
+         return "Lên lại sàn Y=" + this.target + (this.walk != null ? " · " + this.walk.label() : (this.pillar != null ? " · kê cột" : ""));
       }
 
       @Override
@@ -2251,12 +2319,17 @@ public final class MineController {
                this.walk.finish();
                this.walk = null;
                if (var4 == MineController.Result.FAILED) {
+                  // 1.14.5: đi bộ → đào bậc → kê cột
+                  if (++this.attempts < 2) {
+                     return MineController.Result.RUNNING;
+                  }
+
                   if (MineController.this.fillerCount() == 0) {
                      this.fatal = true;
                      return this.failWith("Hết khối bắc cầu để lên lại");
                   }
 
-                  if (++this.attempts > 3) {
+                  if (this.attempts > 4) {
                      return this.failWith("Không tìm được đường bắc cầu/cột lên lại");
                   }
 
@@ -2274,9 +2347,23 @@ public final class MineController {
                return MineController.Result.DONE;
             } else if (var1.getY() < this.target
                && MineController.this.region.insideColumn(var1.getX(), var1.getZ())
-               && this.attempts == 0
+               && this.attempts >= 2
                && MineController.this.fillerCount() > 0) {
+               // 1.14.5: đi bộ ra và đào bậc lên đều không được mới kê cột
                this.pillar = MineController.this.new PillarTask(var1);
+               return MineController.Result.RUNNING;
+            } else if (this.attempts == 0) {
+               // 1.14.5: rơi xuống hố → tìm đường đi bộ lên (dốc tự nhiên, bậc 1 ô) tới sàn tầng, không đặt khối
+               BlockPos var5 = new BlockPos(
+                  Math.clamp((long)var1.getX(), MineController.this.region.x0, MineController.this.region.x1),
+                  this.target,
+                  Math.clamp((long)var1.getZ(), MineController.this.region.z0, MineController.this.region.z1)
+               );
+               this.walk = MineController.this.new WalkTask(var5, 0.3, false, "lên lại sàn (đi bộ)");
+               this.walk.noBridge = true;
+               this.walk.goalTest = var1x -> var1x.getY() == this.target && MineController.this.region.insideColumn(var1x.getX(), var1x.getZ());
+               this.walk.yLo = Math.min(var1.getY(), this.target);
+               this.walk.yHi = Math.max(var1.getY(), this.target);
                return MineController.Result.RUNNING;
             } else {
                BlockPos var2 = new BlockPos(
@@ -2284,9 +2371,12 @@ public final class MineController {
                   this.target,
                   Math.clamp((long)var1.getZ(), MineController.this.region.z0, MineController.this.region.z1)
                );
-               PathFinder.Dig var3 = new PathFinder.Dig(MineController.this.region, false, Math.min(MineController.this.region.y0, var1.getY()), true);
-               this.walk = MineController.this.new WalkTask(var2, 0.24, var3, "bắc cầu lên lại sàn", 20000, 1.0);
+               // 1.14.5: lần 2 đào bậc thang lên (không đặt khối); từ lần 3 mới được kê cột / bắc cầu
+               boolean var4 = this.attempts >= 2 || MineController.this.bridgeAllowed();
+               PathFinder.Dig var3 = new PathFinder.Dig(MineController.this.region, false, Math.min(MineController.this.region.y0, var1.getY()), var4);
+               this.walk = MineController.this.new WalkTask(var2, 0.24, var3, var4 ? "bắc cầu lên lại sàn" : "đào bậc lên lại sàn", 20000, 1.0);
                this.walk.verticalAccess = true;
+               this.walk.noBridge = !var4;
                this.walk.goalTest = var1x -> var1x.getY() == this.target && MineController.this.region.insideColumn(var1x.getX(), var1x.getZ());
                this.walk.yLo = Math.min(var1.getY(), this.target);
                this.walk.yHi = Math.max(var1.getY(), this.target);
@@ -3585,6 +3675,7 @@ public final class MineController {
       int jumpFails;
       int detours;
       int blockedRounds;
+      int aimSwitch;
 
       RowTask(LayerPlan nullx, int nullxx) {
          this.lp = nullx;
@@ -3896,6 +3987,16 @@ public final class MineController {
                   // 1.14.2: khối thừa quanh lát đã trống để dành vét một lượt cuối tầng; chỉ phá ngay sỏi/cát vừa rơi lại vào hàng
                   if (!Cells.mineable(MineController.this.mc, var2)) {
                      MineController.this.middleSeenClear.add(var2.toImmutable());
+                     if (MineController.this.justBroke(var2) && var2.equals(this.target) && this.breakTicks > 0) {
+                        // 1.14.5: lát vừa vỡ do giữ chuột (vỡ lúc game đọc phím)
+                        MineController.this.middleStrikeAt.put(var2.toImmutable(), MineController.this.mc.player.getPos());
+                        this.done++;
+                        this.pendingBefore = null;
+                        this.breakTicks = 0;
+                        this.idle = 0;
+                        this.blocked = 0;
+                        this.handovers = 0;
+                     }
                   }
 
                   List<BlockPos> var4 = this.planeLeft(this.run.get(this.idx));
@@ -3927,6 +4028,7 @@ public final class MineController {
                      this.offTicks = 0;
                      this.detours = 0;
                      this.blockedRounds = 0;
+                     this.aimSwitch = 0;
                   }
 
                   if (!MineController.this.equipPick()) {
@@ -3951,17 +4053,14 @@ public final class MineController {
                               this.pendingBefore = this.planeLeft(var2x);
                            }
 
-                           MineController.this.mc.interactionManager.updateBlockBreakingProgress(var28, var30);
-                           MineController.this.mc.player.swingHand(Hand.MAIN_HAND);
+                           MineController.this.hold(var28, var30, this.pendingBefore);
                            this.breakTicks++;
                            this.offTicks = 0;
                            if (!Cells.mineable(MineController.this.mc, var28)) {
+                              // (1.14.5: khối vỡ lúc game đọc phím → ghi nhận ở vòng while đầu tick, nhánh này giữ cho chắc)
                               MineController.this.middleSeenClear.add(var28.toImmutable());
                               MineController.this.middleStrikeAt.put(var28.toImmutable(), MineController.this.mc.player.getPos());
-                              MineController.this.strikes++;
                               this.done++;
-                              MineController.this.recentStrikes.put(var28, MineController.this.ticks);
-                              MineController.this.deferCheck(var28, this.pendingBefore);
                               this.pendingBefore = null;
                               this.breakTicks = 0;
                               this.idle = 0;
@@ -3991,6 +4090,8 @@ public final class MineController {
                         } else if (this.breakTicks > 0 && ++this.offTicks > 4) {
                            this.stopBreaking();
                            this.offTicks = 0;
+                           // 1.14.5: đập lại thì ngắm điểm khác trên cùng khối
+                           this.aimSwitch++;
                         }
 
                         if (debugTrace) {
@@ -4003,9 +4104,10 @@ public final class MineController {
                         BlockPos var32 = ((LayerPlan.Slice)var31).center();
                         Direction var33 = this.rowFace(var32, ((LayerPlan.Slice)var31).face());
                         Direction var9 = var33.getOpposite();
-                        Vec3d var10 = Cells.drillFacePoint(
-                           MineController.this.mc, MineController.this.mc.player.getEyePos(), var32, var33, MineController.this.reach()
+                        List<Vec3d> var47 = Cells.facePoints(
+                           MineController.this.mc, MineController.this.mc.player.getEyePos(), var32, var33, MineController.this.reach(), true
                         );
+                        Vec3d var10 = var47.isEmpty() ? null : var47.get(this.aimSwitch % var47.size());
                         MineController.this.look(var10 != null ? var10 : Cells.faceCenter(var32, var33));
                         double var11 = this.along(MineController.this.mc.player.getPos(), var32, var9);
                         double var13 = var32.getX() + 0.5 - var9.getOffsetX() * 1.9;
@@ -4063,7 +4165,22 @@ public final class MineController {
                                  // mà lát đang đào vẫn với tới từ đây → đứng đập tiếp, ô đáp trống thì nhảy; trước đây lấp rãnh ngay tick đó
                                  if (var10 == null && !this.landingPending(var9)) {
                                     Keys.releaseMove(MineController.this.mc);
-                                    this.fill = MineController.this.new PlugTask(var19.down(), "lấp hố trên sàn", true);
+                                    if (MineController.this.bridgeAllowed()) {
+                                       this.fill = MineController.this.new PlugTask(var19.down(), "lấp hố trên sàn", true);
+                                       return MineController.Result.RUNNING;
+                                    }
+
+                                    // 1.14.5: không lấp hố — phần hàng bên kia hố đào từ phía khác (vét cuối tầng / hàng sau tới từ đầu kia)
+                                    AutoMineMod.LOGGER.info(
+                                       "[AutoMine] Hàng {}: hố ở {} không nhảy / đi qua được → không lấp, {} lát còn lại đào từ phía khác",
+                                       new Object[]{this.strip + 1, var19.down().toShortString(), this.run.size() - this.idx}
+                                    );
+                                    this.stopBreaking();
+                                    this.idx = this.run.size();
+                                    if (!this.reverse) {
+                                       this.lp.index = Math.max(this.lp.index, this.base + this.idx);
+                                    }
+
                                     return MineController.Result.RUNNING;
                                  }
 
@@ -4567,6 +4684,13 @@ public final class MineController {
                }
             }
          } else if (this.phase < 3 && !Cells.mineable(MineController.this.mc, this.c)) {
+            if (this.phase == 2 && MineController.this.justBroke(this.c)) {
+               // 1.14.5: vỡ do giữ chuột → chờ server xem có hiện lại không
+               this.brokeAt = MineController.this.ticks;
+               this.to(3);
+               return MineController.Result.RUNNING;
+            }
+
             return MineController.Result.DONE;
          } else if (this.age > 240) {
             AutoMineMod.LOGGER.info("[AutoMine] Khối giữa {} lần {}: quá 12 giây chưa đập được", this.c.toShortString(), this.attempt);
@@ -4645,15 +4769,7 @@ public final class MineController {
                            }
                         }
 
-                        MineController.this.mc.interactionManager.updateBlockBreakingProgress(this.c, this.aimFace);
-                        MineController.this.mc.player.swingHand(Hand.MAIN_HAND);
-                        if (!Cells.mineable(MineController.this.mc, this.c)) {
-                           MineController.this.strikes++;
-                           MineController.this.recentStrikes.put(this.c, MineController.this.ticks);
-                           MineController.this.deferCheck(this.c, this.single ? null : var8);
-                           this.brokeAt = MineController.this.ticks;
-                           this.to(3);
-                        }
+                        MineController.this.hold(this.c, this.single ? null : this.aimFace, this.single ? null : var8);
 
                         return MineController.Result.RUNNING;
                      } else {
@@ -5056,10 +5172,8 @@ public final class MineController {
          if (!Cells.mineable(MineController.this.mc, this.c)) {
             // 1.14.2: vỡ là xong ngay — kiểm tra server trả lại / ô 3x3 / đồng bộ ghost chạy nền (deferCheck),
             // trước đây đứng chờ "chờ server" + "kiểm tra" + "đồng bộ ghost" sau mỗi nhát
+            // 1.14.5: đếm nhát / hẹn kiểm tra do consumeBreak() làm (khối vỡ lúc game đọc phím)
             this.brokeAt = this.age;
-            MineController.this.strikes++;
-            MineController.this.recentStrikes.put(this.c, MineController.this.ticks);
-            MineController.this.deferCheck(this.c, this.single ? List.of() : this.before);
             return MineController.Result.DONE;
          } else if (!this.holdMiningPosture()) {
             return MineController.Result.RUNNING;
@@ -5100,8 +5214,7 @@ public final class MineController {
                   }
                }
 
-               MineController.this.mc.interactionManager.updateBlockBreakingProgress(this.c, this.f);
-               MineController.this.mc.player.swingHand(Hand.MAIN_HAND);
+               MineController.this.hold(this.c, this.single ? null : this.f, this.single ? List.of() : this.before);
                if (this.point != null) {
                   MineController.this.look(this.point);
                }
@@ -5207,6 +5320,7 @@ public final class MineController {
       }
 
       void finish() {
+         MouseHold.release();
          ServerSync.restoreBreaking(MineController.this.mc);
          if (MineController.this.mc.interactionManager != null && MineController.this.mc.interactionManager.isBreakingBlock()) {
             MineController.this.mc.interactionManager.cancelBlockBreaking();
@@ -5248,8 +5362,7 @@ public final class MineController {
             } else if (!MineController.this.equipPick()) {
                return MineController.Result.RUNNING;
             } else {
-               MineController.this.mc.interactionManager.updateBlockBreakingProgress(this.p, Direction.UP);
-               MineController.this.mc.player.swingHand(Hand.MAIN_HAND);
+               MineController.this.hold(this.p, null, null);
                MineController.this.status = "Kẹt trong khối → phá";
                return MineController.Result.RUNNING;
             }
@@ -5280,6 +5393,8 @@ public final class MineController {
       boolean directPath;
       boolean waterAccess;
       boolean verticalAccess;
+      /** 1.14.5: không bắc cầu kể cả khi đi khác độ cao (vd. tìm đường đi bộ lên khỏi hố) */
+      boolean noBridge;
       int idx;
       int stuck;
       double bestDist = Double.MAX_VALUE;
@@ -5422,15 +5537,7 @@ public final class MineController {
                      }
                   }
 
-                  MineController.this.mc.interactionManager.updateBlockBreakingProgress(var3, var5);
-                  MineController.this.mc.player.swingHand(Hand.MAIN_HAND);
-                  if (!Cells.mineable(MineController.this.mc, var3)) {
-                     MineController.this.strikes++;
-                     MineController.this.recentStrikes.put(var3.toImmutable(), MineController.this.ticks);
-                     MineController.this.deferCheck(var3, this.drillBefore);
-                     this.drillAt = null;
-                     return true;
-                  }
+                  MineController.this.hold(var3, var5, this.drillBefore);
                }
 
                if (this.age - this.drillSince > Cells.breakTicks(MineController.this.mc, var3) * 2.0 + 60.0) {
@@ -5443,6 +5550,27 @@ public final class MineController {
                }
             }
          }
+      }
+
+      /** 1.14.5: khối chắn trước mặt (thân/đầu ở ô kế theo hướng đi) thuộc khung → giữ chuột phá nó. Trả true khi đang phá. */
+      private boolean breakThrough(BlockPos var1, BlockPos var2) {
+         if (MineController.this.region != null && MineController.this.layer >= 0 && !var1.equals(var2)) {
+            Direction var3 = Direction.getFacing(var2.getX() - var1.getX(), 0.0F, var2.getZ() - var1.getZ());
+            int var4 = MineController.this.region.floor(MineController.this.layer);
+
+            for (BlockPos var8 : new BlockPos[]{var1.offset(var3).up(), var1.offset(var3), var1.offset(var3).up(2), var2.up(), var2}) {
+               if (MineController.this.region.inside(var8)
+                  && var8.getY() >= var4
+                  && Cells.mineable(MineController.this.mc, var8)
+                  && !MineController.this.waterDams.contains(var8)
+                  && !MineController.this.gaveUp.contains(var8)
+                  && this.drill(new MineController.Hit(var8, var3.getOpposite()), false)) {
+                  return true;
+               }
+            }
+         }
+
+         return false;
       }
 
       /** 1.14.0: bước giữa đường đi thẳng → vào tới ô là tính đã qua, không phải đứng vào tâm ô rồi mới đi tiếp. */
@@ -5610,13 +5738,15 @@ public final class MineController {
                   Predicate var24 = this.goalTest != null ? this.goalTest : var1x -> var1x.equals(var21);
                   // 1.14.2: đi trong một tầng (Y cố định) → được xuống hố nông 1 ô rồi bước lên thay vì bắc cầu
                   boolean var41 = var2 == var4 && !this.waterAccess;
+                  // 1.14.5: đi trong tầng thì không bắc cầu (đi vòng / xuống hố nông / nhảy / đào xuyên khối trong khung)
+                  boolean var42 = MineController.this.fillerCount() > 0 && !this.noBridge && (!var41 || MineController.this.bridgeAllowed());
                   PathFinder.Step var7 = this.replans < 2 && this.directRejects < 3
                      ? DirectRoute.next(
                         MineController.this.mc,
                         var3,
                         this.goal,
                         this.activeDig,
-                        MineController.this.fillerCount() > 0,
+                        var42,
                         this.waterAccess,
                         MineController.this.avoid,
                         var41
@@ -5635,7 +5765,7 @@ public final class MineController {
                            this.goal,
                            var2,
                            var4,
-                           MineController.this.fillerCount() > 0,
+                           var42,
                            this.activeDig != null && this.activeDig.pillar,
                            MineController.this.avoid
                         );
@@ -5966,6 +6096,10 @@ public final class MineController {
                            if (var25 < this.bestDist - 0.05) {
                               this.bestDist = var25;
                               this.stuck = 0;
+                           } else if (this.stuck >= 24 && this.breakThrough(var3, var22)) {
+                              // 1.14.5: đâm vào khối trong khung (thường là ghost vừa đồng bộ lại) → phá xuyên qua, không đi tới đi lui
+                              this.stuck = 24;
+                              return MineController.Result.RUNNING;
                            } else if (++this.stuck == 20) {
                               MineController.this.ghost.requestAround(var3, Direction.getFacing(var22.getX() - var3.getX(), 0.0F, var22.getZ() - var3.getZ()));
                               if (var22.getY() > var3.getY()) {
