@@ -2478,27 +2478,8 @@ public final class MineController {
                            this.strike = MineController.this.new StrikeTask(var16, Direction.UP, "đào xuống từng bậc", false);
                            return MineController.Result.RUNNING;
                         } else {
-                           for (Direction var8 : net.minecraft.util.math.Direction.Type.HORIZONTAL) {
-                              for (int var9 = 1; var9 <= 3; var9++) {
-                                 BlockPos var10 = var1.offset(var8).down(var9);
-                                 if (var10.getY() >= this.floor
-                                    && MineController.this.region.insideColumn(var10.getX(), var10.getZ())
-                                    && Cells.standable(MineController.this.mc, var10)) {
-                                    boolean var11 = true;
-
-                                    for (int var12 = var10.getY(); var12 <= var1.getY() + 1; var12++) {
-                                       if (!Cells.passable(MineController.this.mc, new BlockPos(var10.getX(), var12, var10.getZ()))) {
-                                          var11 = false;
-                                       }
-                                    }
-
-                                    if (var11) {
-                                       this.walk = MineController.this.new WalkTask(var10, 0.18, false, "bước xuống ô có sàn đỡ");
-                                       this.walk.yLo = this.floor;
-                                       return MineController.Result.RUNNING;
-                                    }
-                                 }
-                              }
+                           if (this.stepDown(var1)) {
+                              return MineController.Result.RUNNING;
                            }
 
                            PathFinder.Dig var17 = new PathFinder.Dig(MineController.this.region, true, this.floor, true);
@@ -2513,6 +2494,10 @@ public final class MineController {
                      } else {
                         return MineController.Result.RUNNING;
                      }
+                  } else if (this.stepDown(var1)) {
+                     // 1.14.5: bên cạnh có hố / bậc thấp hơn trong khung → bước xuống luôn, không đi tới cột trong (có thể là ô trên miệng hố,
+                     // không đứng được → tìm đường mãi không ra, rồi bắc cầu lấp hố)
+                     return MineController.Result.RUNNING;
                   } else {
                      PathFinder.Dig var6 = new PathFinder.Dig(MineController.this.region, true, this.floor, true);
                      var6.spill = true;
@@ -2524,6 +2509,35 @@ public final class MineController {
                }
             }
          }
+      }
+
+      /** ô kề bên thấp hơn 1–3 ô (vẫn trên sàn tầng cần xuống), trong khung, đứng được, đường rơi trống → bước xuống đó */
+      private boolean stepDown(BlockPos var1) {
+         for (Direction var3 : net.minecraft.util.math.Direction.Type.HORIZONTAL) {
+            for (int var4 = 1; var4 <= 3; var4++) {
+               BlockPos var5 = var1.offset(var3).down(var4);
+               if (var5.getY() >= this.floor
+                  && MineController.this.region.insideColumn(var5.getX(), var5.getZ())
+                  && Cells.standable(MineController.this.mc, var5)
+                  && !Cells.hazardAt(MineController.this.mc, var5.down())) {
+                  boolean var6 = true;
+
+                  for (int var7 = var5.getY(); var7 <= var1.getY() + 1; var7++) {
+                     if (!Cells.passable(MineController.this.mc, new BlockPos(var5.getX(), var7, var5.getZ()))) {
+                        var6 = false;
+                     }
+                  }
+
+                  if (var6) {
+                     this.walk = MineController.this.new WalkTask(var5, 0.18, false, "bước xuống ô có sàn đỡ");
+                     this.walk.yLo = this.floor;
+                     return true;
+                  }
+               }
+            }
+         }
+
+         return false;
       }
 
       @Override
