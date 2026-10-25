@@ -1,5 +1,54 @@
 # Lịch sử sửa — donut-automine
 
+## 1.14.5
+
+Theo yêu cầu: giữ chuột thật khi đập (người chơi dừng bot rồi tự đập thì vỡ, bot thì không), đổi điểm ngắm mỗi lần đập lại, bị chặn thì
+đi vòng / phá xuyên qua khối trong khung, gặp chỗ lõm 1–2 ô thì đi xuống / đi vòng chứ không bắc cầu.
+
+### 1. Giữ chuột thật
+
+- Bot không gọi thẳng lệnh đập ở cuối tick nữa mà "giữ chuột trái" qua đúng đường đập của game (`MouseHold`, mixin vào
+  `handleBlockBreaking`): nhát đập gửi lúc game đọc phím, **trước** gói di chuyển của tick đó — đúng thứ tự gói như người chơi. Trước
+  đây nhát đập gửi **sau** gói di chuyển, thứ tự gói khác người thật (anti-cheat có thể bỏ qua / trả lại khối). Chỉ giữ khi tâm ngắm đang
+  nằm đúng trên khối cần đập (nhát 3x3 thì cùng trục mặt), giữ liền tới khi vỡ.
+- Chạy cả khi alt-tab / thu nhỏ cửa sổ và khi bật Freecam (không dùng phím chuột thật của máy).
+
+### 2. Đập lại thì ngắm điểm khác trên cùng khối
+
+- Áp dụng cho mọi lần đập lại: đào hàng (ngắm lệch → điểm khác), đập lại khối giữa, vét sót.
+
+### 3. Không bắc cầu trong tầng
+
+- Đi trong tầng không bắc cầu / kê cột nữa: hố lõm thì đi vòng, sâu 1 ô thì đi xuống rồi bước lên, hẹp thì nhảy, khối trong khung chắn
+  đường thì đào xuyên. Hàng gặp hố không qua được thì để phần bên kia đào từ phía khác (trước: lấp hố).
+- Rơi xuống hố sâu hơn 1 ô: đi bộ ra, không được thì **đào bậc** lên (sửa lỗi tìm đường không đào bậc được khi tầng trên đã đào sẵn);
+  chỉ kê cột khi đi bộ và 3 lần đào bậc đều không được.
+- Xuống tầng dưới: bên cạnh có hố / bậc thấp hơn thì bước xuống luôn (trước: cố đi tới cột trên miệng hố, tìm đường mãi rồi bắc cầu
+  lấp hố).
+- Bắc cầu chỉ còn là cách cuối cùng khi đã tự làm lại vì kẹt 3 lần liền (không đi đâu được nữa).
+- Đi qua hố nông bằng việc con không còn bị coi là "rơi xuống hố" (trước: lặp đi xuống – leo lên mãi).
+
+### 4. Bị chặn thì phá xuyên qua
+
+- Đang đi mà đâm vào khối trong khung (thường là ghost block vừa đồng bộ lại) → giữ chuột phá luôn rồi đi tiếp, không đi tới đi lui.
+
+### Chẩn đoán "sót 1 dải giữa các hàng"
+
+- Nhát 3x3 để lại từ 2 ô trở lên thì ghi vào `latest.log` dòng `3x3 tại … còn N/M ô: dx,dy,dz …` (200 dòng đầu) để tìm nguyên nhân.
+  Cách chia hàng trong mod đúng (tâm hàng cách nhau 3 ô) nên dải sót đến từ nhát 3x3 trên server — cần log để biết ô nào còn.
+
+### Kiểm thử
+
+- Gametest thêm L1 (hố sâu 2 ô giữa sàn tầng đã đào), L2 (đang đào bị đẩy xuống hố sâu 2 ô); đếm số lần đặt khối ngay lúc đặt.
+
+| Ca | 1.14.4 | 1.14.5 |
+|---|---|---|
+| L1: hố sâu 2 ô giữa sàn, khối sót bên kia | 90 tick, không đặt khối | 94 tick, không đặt khối |
+| L2: rơi xuống hố sâu 2 ô rồi đào tiếp 2 tầng | 704 tick, **kê cột 2 khối** | 674 tick, **đào bậc ra, 0 khối** |
+
+- Toàn bộ 24 ca A–L2: 82/82 phép đạt (nhát đập đi qua đường giữ chuột mới). `MovementRegression` 29, `StrikeRegression` 7 phép đạt.
+- Đào khung lớn I: 1747 tick (1.14.4: 1679) — chênh do sỏi rơi khác đường (nhịp mỗi lát vẫn 8 tick như cũ).
+
 ## 1.14.4
 
 Theo 4 yêu cầu của người dùng (kèm ảnh HUD đứng ở "Đập lại khối giữa … lần 0 · đập"): đổi vị trí thì đổi cả điểm ngắm; không đứng im
