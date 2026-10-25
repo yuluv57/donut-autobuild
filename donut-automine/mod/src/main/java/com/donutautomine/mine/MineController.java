@@ -290,6 +290,7 @@ public final class MineController {
             this.waterDams.clear();
             this.clearMiddleTries();
             this.resumedRows.clear();
+            this.resumeTries.clear();
             this.waterReplacements.clear();
             this.retryAt.clear();
             if (this.regionKey().equals(this.config.waterDamRegion) && this.config.waterDamCells != null) {
@@ -407,6 +408,7 @@ public final class MineController {
       this.strikes = 0;
       this.clearMiddleTries();
       this.resumedRows.clear();
+      this.resumeTries.clear();
       this.cleared = 0;
       this.retryAt.clear();
       this.layerQuietSince = this.finalQuietSince = -1;
@@ -952,6 +954,7 @@ public final class MineController {
    private final List<List<LayerPlan.Slice>> suspendedRows = new ArrayList<>();
    private final Set<BlockPos> suspendedCells = new HashSet<>();
    private final Map<BlockPos, Integer> resumedRows = new HashMap<>();
+   private final Map<BlockPos, Integer> resumeTries = new HashMap<>();
    private BlockPos loopRowAt;
    private int loopRowConfirmed;
    private int loopRowCount;
@@ -1622,6 +1625,7 @@ public final class MineController {
                      this.fails.clear();
                      this.clearMiddleTries();
                      this.resumedRows.clear();
+                     this.resumeTries.clear();
                      this.avoid.clear();
                      this.badPits.clear();
                      if (this.layer < 0) {
@@ -1901,7 +1905,7 @@ public final class MineController {
 
    private MineController.Task resumeRow() {
       while (!this.suspendedRows.isEmpty()) {
-         List<LayerPlan.Slice> var1 = this.suspendedRows.removeFirst();
+         List<LayerPlan.Slice> var1 = this.suspendedRows.getFirst();
          ArrayList<LayerPlan.Slice> var2 = new ArrayList<>();
 
          for (LayerPlan.Slice var4 : var1) {
@@ -1910,22 +1914,39 @@ public final class MineController {
             }
          }
 
-         BlockPos var8 = var1.getFirst().center();
-         int var9 = this.resumedRows.merge(var8, 1, Integer::sum);
-         if (!var2.isEmpty() && var9 <= 2) {
-            // khối giữa để dành được thử lại từ đầu (đủ thang 5 lần), các ô 3x3 của nó không còn tính là để dành
-            for (LayerPlan.Slice var6 : var2) {
-               for (BlockPos var7 : Cells.plane(var6.center(), var6.face())) {
-                  this.middleDeferred.remove(var7);
-               }
-
-               this.middleTries.remove(var6.center());
+         LayerPlan.Slice var3 = var1.getFirst();
+         BlockPos var8 = var3.center();
+         if (var2.isEmpty() || !Cells.loaded(this.mc, var8)) {
+            this.suspendedRows.removeFirst();
+         } else if (Cells.mineable(this.mc, var8) && this.middleDeferred.contains(var8)) {
+            // khối giữa chắn hàng còn đó → đập lại nó trước (thang 5 lần đổi góc như lúc đào hàng); không vỡ thì để vét cuối tầng như cũ —
+            // không coi nó là khối chắn đường rồi đào đường xuyên qua mãi
+            int var9 = this.resumeTries.merge(var8, 1, Integer::sum);
+            if (var9 <= 5) {
+               AutoMineMod.LOGGER.info("[AutoMine] Quay lại hàng {}: đập lại khối giữa {} lần {} trước khi đào nốt {} lát", new Object[]{var3.strip() + 1, var8.toShortString(), var9, var2.size()});
+               return new MineController.MiddleRetry(var8, var3.face(), var9, Cells.state(this.mc, var8).getBlock() instanceof FallingBlock);
             }
 
-            AutoMineMod.LOGGER.info(
-               "[AutoMine] Quay lại hàng {}: đào nốt {} lát từ {} (lần {})", new Object[]{var2.getFirst().strip() + 1, var2.size(), var2.getFirst().center().toShortString(), var9}
-            );
-            return new MineController.RowTask(this.plan, var2);
+            this.suspendedRows.removeFirst();
+            AutoMineMod.LOGGER.info("[AutoMine] Hàng {}: khối giữa {} vẫn không vỡ khi quay lại → {} lát còn lại để vét cuối tầng", new Object[]{var3.strip() + 1, var8.toShortString(), var2.size()});
+         } else {
+            this.suspendedRows.removeFirst();
+            int var10 = this.resumedRows.merge(var8, 1, Integer::sum);
+            if (var10 <= 2) {
+               // các ô 3x3 để dành của phần hàng này không còn tính là để dành; khối giữa (nếu lại hiện ra) được thử lại đủ thang mới
+               for (LayerPlan.Slice var6 : var2) {
+                  for (BlockPos var7 : Cells.plane(var6.center(), var6.face())) {
+                     this.middleDeferred.remove(var7);
+                  }
+
+                  this.middleTries.remove(var6.center());
+               }
+
+               AutoMineMod.LOGGER.info(
+                  "[AutoMine] Quay lại hàng {}: đào nốt {} lát từ {} (lần {})", new Object[]{var2.getFirst().strip() + 1, var2.size(), var2.getFirst().center().toShortString(), var10}
+               );
+               return new MineController.RowTask(this.plan, var2);
+            }
          }
       }
 
