@@ -23,6 +23,9 @@ bỏ cả phần còn lại của hàng → sót nguyên hàng bên trái; hàng
   đường sang hàng kế đào xuyên qua phần hàng đó → sót cả hàng). Giờ ghi lại phần hàng đó, đường đi sang hàng kế **không đào xuyên**
   qua nó (không có đường nào khác mới đào qua), hết các hàng thì **quay lại đào nốt đúng làn hàng đó** (khối giữa được thử lại đủ 5 lần
   mới; mỗi phần hàng quay lại tối đa 2 lần, rồi mới để vét cuối tầng).
+- Khi quay lại mà khối giữa vẫn còn: đập lại nó trước (5 lần, đổi góc như lúc đào hàng); vỡ thì đào nốt hàng, không vỡ thì để vét cuối
+  tầng — không coi nó là khối chắn đường rồi đào đường xuyên vào nó mãi.
+- Số lần "làm lại vì kẹt" xoá khi bắt đầu đào khung mới (trước: còn sót từ lần trước → được phép kê cột sớm).
 - Đào ngược về đầu hàng không bắt đầu ở khối giữa để dành nữa (trước: "bị che" → lập lại đào ngược → lặp mãi, log của người dùng lặp
   2 lần/giây). Thêm chốt chặn: lập cùng một hàng từ cùng một lát 4 lần mà không đào thêm được gì thì để phần đó vét cuối tầng.
 
@@ -32,7 +35,12 @@ bỏ cả phần còn lại của hàng → sót nguyên hàng bên trái; hàng
   Mọi ca kiểm tra thêm "0 gói bị huỷ". Bản 1.14.5 hỏng ca K (9 gói bị huỷ, đập lẻ 6 khối xung quanh — đúng như log người dùng).
 - Ca mới M1: khối đá đặc 12×3×9 (3 hàng), khối giữa hàng 1 bị server huỷ 8 lần.
 
-KETQUA
+| Ca | 1.14.5 | 1.14.6 |
+|---|---|---|
+| K: khối giữa bị server huỷ 2 lần | **9 gói bị huỷ**, đập lẻ 6 khối xung quanh, 591 tick | 0 gói bị huỷ, vỡ ở lần thử lại, 161 tick |
+| M1: khối giữa bị huỷ 8 lần giữa khối đá đặc | (ca mới) | vỡ ở nhát thứ 9, hàng 1 đào nốt đúng làn, 0 nhát lệch làn, 684 tick |
+
+- Toàn bộ 25 ca A–M1: 103/103 phép đạt. `MovementRegression` 29, `StrikeRegression` 7 phép đạt. Đào khung lớn I: 1748 tick (1.14.5: 1747).
 
 ## 1.14.5
 
