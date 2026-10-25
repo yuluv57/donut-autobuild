@@ -48,6 +48,8 @@ public final class Fake3x3Pickaxe implements ModInitializer {
       UseBlockCallback.EVENT.register((player, world, hand, hit) -> {
          if (!world.isClient && player.getStackInHand(hand).getItem() instanceof BlockItem) {
             placements.incrementAndGet();
+            com.donutautomine.AutoMineMod.LOGGER.info("[GameTest] đặt khối tại {} lúc bot đang: {}", hit.getBlockPos().offset(hit.getSide()).toShortString(),
+               com.donutautomine.AutoMineMod.controller == null ? "?" : com.donutautomine.AutoMineMod.controller.taskLabel());
          }
 
          return ActionResult.PASS;

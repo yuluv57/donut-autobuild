@@ -584,7 +584,7 @@ public final class MineController {
                   Keys.releaseMove(this.mc);
                   this.mc.interactionManager.cancelBlockBreaking();
                   if (!this.mc.player.isOnGround()) {
-                     this.status = "Đang rơi — chờ chạm đất để bắc cầu lên lại";
+                     this.status = "Đang rơi — chờ chạm đất để lên lại sàn";
                      return;
                   }
 
@@ -2316,11 +2316,13 @@ public final class MineController {
             if (var4 == MineController.Result.RUNNING) {
                return var4;
             } else {
+               String var6 = this.walk.why;
                this.walk.finish();
                this.walk = null;
                if (var4 == MineController.Result.FAILED) {
-                  // 1.14.5: đi bộ → đào bậc → kê cột
-                  if (++this.attempts < 2) {
+                  // 1.14.5: đi bộ → đào bậc (3 lần) → kê cột
+                  AutoMineMod.LOGGER.info("[AutoMine] Lên lại sàn lần {} không được: {}", this.attempts + 1, var6);
+                  if (++this.attempts < 4) {
                      return MineController.Result.RUNNING;
                   }
 
@@ -2347,7 +2349,7 @@ public final class MineController {
                return MineController.Result.DONE;
             } else if (var1.getY() < this.target
                && MineController.this.region.insideColumn(var1.getX(), var1.getZ())
-               && this.attempts >= 2
+               && this.attempts >= 4
                && MineController.this.fillerCount() > 0) {
                // 1.14.5: đi bộ ra và đào bậc lên đều không được mới kê cột
                this.pillar = MineController.this.new PillarTask(var1);
@@ -2360,7 +2362,6 @@ public final class MineController {
                   Math.clamp((long)var1.getZ(), MineController.this.region.z0, MineController.this.region.z1)
                );
                this.walk = MineController.this.new WalkTask(var5, 0.3, false, "lên lại sàn (đi bộ)");
-               this.walk.noBridge = true;
                this.walk.goalTest = var1x -> var1x.getY() == this.target && MineController.this.region.insideColumn(var1x.getX(), var1x.getZ());
                this.walk.yLo = Math.min(var1.getY(), this.target);
                this.walk.yHi = Math.max(var1.getY(), this.target);
@@ -2372,11 +2373,11 @@ public final class MineController {
                   Math.clamp((long)var1.getZ(), MineController.this.region.z0, MineController.this.region.z1)
                );
                // 1.14.5: lần 2 đào bậc thang lên (không đặt khối); từ lần 3 mới được kê cột / bắc cầu
-               boolean var4 = this.attempts >= 2 || MineController.this.bridgeAllowed();
+               boolean var4 = this.attempts >= 4 || MineController.this.bridgeAllowed();
                PathFinder.Dig var3 = new PathFinder.Dig(MineController.this.region, false, Math.min(MineController.this.region.y0, var1.getY()), var4);
                this.walk = MineController.this.new WalkTask(var2, 0.24, var3, var4 ? "bắc cầu lên lại sàn" : "đào bậc lên lại sàn", 20000, 1.0);
                this.walk.verticalAccess = true;
-               this.walk.noBridge = !var4;
+               this.walk.bridgeOk = var4;
                this.walk.goalTest = var1x -> var1x.getY() == this.target && MineController.this.region.insideColumn(var1x.getX(), var1x.getZ());
                this.walk.yLo = Math.min(var1.getY(), this.target);
                this.walk.yHi = Math.max(var1.getY(), this.target);
@@ -3717,7 +3718,8 @@ public final class MineController {
 
       @Override
       boolean walking() {
-         return this.sub == null && this.fill == null;
+         // 1.14.5: đang đi qua hố nông bằng việc con (WalkTask) cũng là đang đi — không coi là rơi xuống hố rồi bật "lên lại sàn"
+         return this.sub == null && this.fill == null || this.sub != null && this.sub.walking();
       }
 
       @Override
@@ -5393,8 +5395,8 @@ public final class MineController {
       boolean directPath;
       boolean waterAccess;
       boolean verticalAccess;
-      /** 1.14.5: không bắc cầu kể cả khi đi khác độ cao (vd. tìm đường đi bộ lên khỏi hố) */
-      boolean noBridge;
+      /** 1.14.5: mặc định không bắc cầu; chỉ việc cần (kê cột lên lại sàn khi đi bộ / đào bậc đều hỏng) mới bật */
+      boolean bridgeOk;
       int idx;
       int stuck;
       double bestDist = Double.MAX_VALUE;
@@ -5701,7 +5703,8 @@ public final class MineController {
                      var1 = new PathFinder.Dig(MineController.this.region, true, var2, true);
                   }
 
-                  if (var1 != null && var1.pillar && MineController.this.fillerCount() == 0) {
+                  // 1.14.5: không kê cột trong đường đi (đào bậc lên thay), trừ khi việc cho phép hoặc đã kẹt 3 lần liền
+                  if (var1 != null && var1.pillar && (MineController.this.fillerCount() == 0 || !this.bridgeOk && !MineController.this.bridgeAllowed())) {
                      boolean var19 = var1.spill;
                      var1 = new PathFinder.Dig(var1.region, var1.outside, var1.minBreakY, false);
                      var1.spill = var19;
@@ -5738,8 +5741,9 @@ public final class MineController {
                   Predicate var24 = this.goalTest != null ? this.goalTest : var1x -> var1x.equals(var21);
                   // 1.14.2: đi trong một tầng (Y cố định) → được xuống hố nông 1 ô rồi bước lên thay vì bắc cầu
                   boolean var41 = var2 == var4 && !this.waterAccess;
-                  // 1.14.5: đi trong tầng thì không bắc cầu (đi vòng / xuống hố nông / nhảy / đào xuyên khối trong khung)
-                  boolean var42 = MineController.this.fillerCount() > 0 && !this.noBridge && (!var41 || MineController.this.bridgeAllowed());
+                  // 1.14.5: không bắc cầu (đi vòng / xuống hố nông / nhảy / đào xuyên khối trong khung); chỉ khi việc cho phép
+                  // hoặc đã làm lại vì kẹt 3 lần liền
+                  boolean var42 = MineController.this.fillerCount() > 0 && (this.bridgeOk || MineController.this.bridgeAllowed());
                   PathFinder.Step var7 = this.replans < 2 && this.directRejects < 3
                      ? DirectRoute.next(
                         MineController.this.mc,

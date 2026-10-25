@@ -152,6 +152,19 @@ public final class PathFinder {
                         && (var24 = var15.planeCost(var25, var43, var26 = new ArrayList())) >= 0
                         && !var26.contains(var28)) {
                         push(var11, var12, var13, var19, var41, 5.2 + var24, var3, var9, PathFinder.Kind.UP, var26, null);
+                     } else if (in(var41, var6, var7)
+                        && !var8.contains(var41)
+                        && var15.passable(var20.up(2))
+                        && var15.floor(var28)
+                        && !Cells.hazardAt(var0, var28)
+                        && var15.passable(var25 = var41.up())
+                        && var15.mineable(var41)
+                        && !Cells.hazardAt(var0, var25)
+                        && (var24 = var15.planeCost(var41, var43, var26 = new ArrayList())) >= 0
+                        && !var26.contains(var28)) {
+                        // 1.14.5: bậc lên mà ô đầu đã trống (vd. tầng trên đã đào) → chỉ cần đào ô chân của bậc; trước đây bỏ qua nên
+                        // rơi xuống hố sâu 2 ô dưới tầng đã đào là không đào bậc lên được, phải kê cột
+                        push(var11, var12, var13, var19, var41, 5.2 + var24, var3, var9, PathFinder.Kind.UP, var26, null);
                      }
 
                      BlockPos var23;
