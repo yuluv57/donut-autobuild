@@ -5,7 +5,7 @@ Mod Fabric tự đào một khung (vùng chọn XYZ hoặc placement Litematica)
 
 | | |
 |---|---|
-| Phiên bản | **1.14.5** — [`release/donut-automine-fabric-1.21.4-1.14.5.jar`](release/donut-automine-fabric-1.21.4-1.14.5.jar) |
+| Phiên bản | **1.14.6** — [`release/donut-automine-fabric-1.21.4-1.14.6.jar`](release/donut-automine-fabric-1.21.4-1.14.6.jar) |
 | Minecraft | 1.21.4, Fabric Loader ≥ 0.16.9, Java 21 |
 | Cần thêm | Fabric API, Litematica ≥ 0.21.0, MaLiLib (Sodium/Iris không bắt buộc) |
 
@@ -13,7 +13,7 @@ Thay đổi của từng bản: [`CHANGELOG.md`](CHANGELOG.md).
 
 ## Cài
 
-Đóng Minecraft, xoá JAR AutoMine cũ trong thư mục `mods`, chép `donut-automine-fabric-1.21.4-1.14.5.jar` vào, mở lại game.
+Đóng Minecraft, xoá JAR AutoMine cũ trong thư mục `mods`, chép `donut-automine-fabric-1.21.4-1.14.6.jar` vào, mở lại game.
 Chỉ để **một** JAR AutoMine. Cấu hình cũ (`config/donut-automine.json`) dùng tiếp được; hai mục `rotationMinSpeed`/`rotationMaxSpeed`
 không còn tác dụng vì 1.14.0 quay mặt tức thì.
 

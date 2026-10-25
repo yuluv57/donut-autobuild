@@ -1,5 +1,39 @@
 # Lịch sử sửa — donut-automine
 
+## 1.14.6
+
+Theo log của người dùng (1.14.5): khối giữa đập lại 5 lần đều bị server trả lại (người dừng bot rồi tự bấm chuột thì vỡ ngay), rồi
+bỏ cả phần còn lại của hàng → sót nguyên hàng bên trái; hàng đào ngược lặp mãi ở khối giữa để dành.
+
+### 1. Đập lại khối bị trả lại: gửi lại "bắt đầu đập" như người bấm lại chuột
+
+- Nguyên nhân (đọc mã game 1.21.4): sau khi một khối vỡ, game vẫn nhớ vị trí khối đó. Khối bị server trả lại mà giữ chuột tiếp vào đúng
+  khối đó thì game chỉ cộng tiến độ rồi gửi "đập xong" — **không gửi "bắt đầu đập"**. Server vanilla vẫn cho qua, DonutSMP (anti-cheat)
+  thì trả lại khối → mọi lần đập lại đều hỏng. Người dừng bot rồi tự bấm thì game gửi "bắt đầu đập" nên vỡ ngay.
+- Sửa: khi game không còn đập dở khối nào, bot xoá vị trí cũ trước khi giữ chuột (như nhả chuột rồi bấm lại) → luôn có "bắt đầu đập"
+  trước "đập xong", vẫn chờ 5 tick nghỉ sau nhát trước như người giữ chuột.
+- Hướng nhìn server đang biết (gói quay mặt trước đó) cũng phải trúng khối mới giữ chuột: vừa quay sang khối mới thì chờ 1 tick
+  (tối đa 3 tick, đang vừa đi vừa quay thì giữ luôn để không đứng im).
+- Khi server vẫn trả lại khối, `latest.log` ghi thêm dòng `Gói đập gửi cho …: bắt đầu@-19 quay×3@-18..-16 xong@-17 …` (thứ tự gói đã
+  gửi cho khối đó) để biết lý do nếu còn lỗi khác.
+
+### 2. Không bỏ hàng vì khối giữa đập không vỡ
+
+- Khối giữa thử 5 lần vẫn không vỡ → các lát sau của hàng bị che: trước đây bỏ cả phần còn lại cho vét cuối tầng (vét lẻ lệch làn,
+  đường sang hàng kế đào xuyên qua phần hàng đó → sót cả hàng). Giờ ghi lại phần hàng đó, đường đi sang hàng kế **không đào xuyên**
+  qua nó (không có đường nào khác mới đào qua), hết các hàng thì **quay lại đào nốt đúng làn hàng đó** (khối giữa được thử lại đủ 5 lần
+  mới; mỗi phần hàng quay lại tối đa 2 lần, rồi mới để vét cuối tầng).
+- Đào ngược về đầu hàng không bắt đầu ở khối giữa để dành nữa (trước: "bị che" → lập lại đào ngược → lặp mãi, log của người dùng lặp
+  2 lần/giây). Thêm chốt chặn: lập cùng một hàng từ cùng một lát 4 lần mà không đào thêm được gì thì để phần đó vét cuối tầng.
+
+### Kiểm thử
+
+- Server giả của gametest giờ soát thứ tự gói đập như anti-cheat: "đập xong" không có "bắt đầu đập" tương ứng thì huỷ, trả lại khối.
+  Mọi ca kiểm tra thêm "0 gói bị huỷ". Bản 1.14.5 hỏng ca K (9 gói bị huỷ, đập lẻ 6 khối xung quanh — đúng như log người dùng).
+- Ca mới M1: khối đá đặc 12×3×9 (3 hàng), khối giữa hàng 1 bị server huỷ 8 lần.
+
+KETQUA
+
 ## 1.14.5
 
 Theo yêu cầu: giữ chuột thật khi đập (người chơi dừng bot rồi tự đập thì vỡ, bot thì không), đổi điểm ngắm mỗi lần đập lại, bị chặn thì

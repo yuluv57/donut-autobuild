@@ -31,6 +31,8 @@ public abstract class HoldBreakMixin {
          } else {
             // bot vẫn giữ trạng thái đang đào giữa các tick (ServerSync.hideBreaking) → trả lại trước khi game đập tiếp, không đập lại từ đầu
             ServerSync.restoreBreaking(var2);
+            // 1.14.6: không còn đang đập dở khối nào → như người nhả chuột rồi bấm lại: game gửi lại "bắt đầu đập"
+            MouseHold.rearm(var2);
             var2.crosshairTarget = var3;
             MouseHold.clearScreenCooldown(var2);
             return true;

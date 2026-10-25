@@ -15,5 +15,8 @@
     "donutautomine": "*",
     "fabric-client-gametest-api-v1": "*",
     "fabric-events-interaction-v0": "*"
-  }
+  },
+  "mixins": [
+    "donutautomine-gametest.mixins.json"
+  ]
 }

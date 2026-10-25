@@ -436,6 +436,7 @@ public final class MineController {
       if (this.state == MineController.State.RUNNING) {
          if (this.mc.player != null && this.mc.world != null && this.mc.interactionManager != null) {
             this.ticks++;
+            DigLog.tick = this.ticks;
             FreeCam.adoptExternal(this.mc);
             BotInput.install(this.mc);
             ServerSync.restoreBreaking(this.mc);
@@ -944,6 +945,12 @@ public final class MineController {
    private final Map<BlockPos, Vec3d> middleBase = new HashMap<>();
    /** 1.14.3: khối giữa thử đủ 5 lần vẫn hiện lại → cả mặt 3x3 của lát đó để vét cuối tầng, hàng đào tiếp lát kế */
    private final Set<BlockPos> middleDeferred = new HashSet<>();
+   private final List<List<LayerPlan.Slice>> suspendedRows = new ArrayList<>();
+   private final Set<BlockPos> suspendedCells = new HashSet<>();
+   private final Map<BlockPos, Integer> resumedRows = new HashMap<>();
+   private BlockPos loopRowAt;
+   private int loopRowConfirmed;
+   private int loopRowCount;
    /** 1.14.3: khối giữa các lát hàng đã đi qua lúc thấy trống (vừa đập vỡ / sẵn trống) — hiện lại mới là bị trả lại, cần đập lại */
    private final Set<BlockPos> middleSeenClear = new HashSet<>();
    /** 1.14.4: chỗ đứng lúc đập khối giữa lần đầu → thang lùi/ngang tính từ đó (đổi hẳn góc so với nhát hỏng) */
@@ -960,6 +967,9 @@ public final class MineController {
       this.middleDeferred.clear();
       this.middleSeenClear.clear();
       this.middleStrikeAt.clear();
+      this.suspendedRows.clear();
+      this.resumedRows.clear();
+      this.loopRowAt = null;
    }
 
    /** 1.14.2: ô sẽ vỡ theo nhát 3x3 vừa đập (chờ server báo) → tới hạn này không đập lại / không đi tìm chỗ đứng để đập */
@@ -1049,6 +1059,13 @@ public final class MineController {
             List<BlockPos> var5 = (List<BlockPos>)var3[2];
             if (Cells.loaded(this.mc, var4) && Cells.mineable(this.mc, var4)) {
                this.fail(var4, "server trả lại khối");
+               if (this.diagLogs++ < 200) {
+                  // 1.14.6: thứ tự gói đã gửi cho khối này (thiếu "bắt đầu", quay mặt sau khi đập…) để biết vì sao server trả lại
+                  AutoMineMod.LOGGER.info(
+                     "[AutoMine] Gói đập gửi cho {}: {} (đứng đất={}, ngồi={})",
+                     new Object[]{var4.toShortString(), DigLog.about(var4, 120), this.mc.player.isOnGround(), this.mc.player.isSneaking()}
+                  );
+               }
             } else {
                this.fails.remove(var4);
                this.retryAt.remove(var4);
@@ -1531,14 +1548,17 @@ public final class MineController {
                   this.status = "Tầng " + (this.layer + 1) + "/" + this.region.layerCount() + " · hàng " + (var15.strip() + 1) + "/" + this.plan.strips;
                   if (Cells.mineable(this.mc, var15.center())
                      && !this.skipped.contains(var15.center())
+                     && !this.middleDeferred.contains(var15.center())
                      && Cells.solid(this.mc, var15.center().offset(var15.face()))) {
                      int var14 = this.plan.runEnd(this.plan.index);
 
                      LayerPlan.Slice var16;
+                     // 1.14.6: dừng dò ở khối giữa để dành — trước đây đào ngược bắt đầu đúng khối đó, hàng báo "bị che" rồi lại lập đào ngược, lặp mãi
                      for (int var19 = this.plan.index;
                         var19 < var14
                            && (var16 = this.plan.slices.get(var19)).face().getAxis() == var15.face().getAxis()
-                           && !this.skipped.contains(var16.center());
+                           && !this.skipped.contains(var16.center())
+                           && !this.middleDeferred.contains(var16.center());
                         var19++
                      ) {
                         if (Cells.mineable(this.mc, var16.center())) {
@@ -1554,6 +1574,10 @@ public final class MineController {
                                  var21.add(new LayerPlan.Slice(var11.center(), var11.face().getOpposite(), var11.strip(), -1));
                               }
 
+                              if (this.rowLooping(var16.center())) {
+                                 return null;
+                              }
+
                               AutoMineMod.LOGGER
                                  .info(
                                     "[AutoMine] Hàng {}: đầu hàng chưa lộ mặt → đào ngược {} lát từ {} về đầu hàng",
@@ -1565,9 +1589,14 @@ public final class MineController {
                      }
                   }
 
-                  return new MineController.RowTask(this.plan, this.plan.index);
+                  return this.rowLooping(var15.center()) ? null : new MineController.RowTask(this.plan, this.plan.index);
                }
             } else {
+               MineController.Task var24 = this.resumeRow();
+               if (var24 != null) {
+                  return var24;
+               }
+
                List<BlockPos> var7 = this.scanLayer();
                if (var7.isEmpty()) {
                   if (this.layerUnloaded > 0) {
@@ -1807,6 +1836,115 @@ public final class MineController {
             this.laneSweep = null;
          }
       }
+   }
+
+   /** 1.14.6: phần hàng bị khối giữa để dành chắn — hết các hàng thì quay lại đào nốt đúng làn đó (mỗi phần tối đa 2 lần) */
+   /** ô không được đào khi tìm đường: đập nước + mặt 3x3 các phần hàng để dành (1.14.6) */
+   Set<BlockPos> keepIntact() {
+      this.refreshSuspendedCells();
+      if (this.suspendedCells.isEmpty()) {
+         return this.waterDams;
+      } else {
+         HashSet<BlockPos> var1 = new HashSet<>(this.waterDams);
+         var1.addAll(this.suspendedCells);
+         return var1;
+      }
+   }
+
+   private void refreshSuspendedCells() {
+      this.suspendedCells.clear();
+
+      for (List<LayerPlan.Slice> var2 : this.suspendedRows) {
+         for (LayerPlan.Slice var4 : var2) {
+            for (BlockPos var6 : Cells.plane(var4.center(), var4.face())) {
+               if (this.region != null && this.region.inside(var6)) {
+                  this.suspendedCells.add(var6.toImmutable());
+               }
+            }
+         }
+      }
+   }
+
+   /** mặt 3x3 của nhát đào đường chạm phần hàng để dành (1.14.6) */
+   boolean suspendedInPlane(BlockPos var1, Direction var2) {
+      if (this.suspendedRows.isEmpty()) {
+         return false;
+      } else {
+         this.refreshSuspendedCells();
+
+         for (BlockPos var4 : Cells.plane(var1, var2)) {
+            if (this.suspendedCells.contains(var4) && Cells.mineable(this.mc, var4)) {
+               return true;
+            }
+         }
+
+         return false;
+      }
+   }
+
+   void suspendRow(List<LayerPlan.Slice> var1) {
+      if (!var1.isEmpty()) {
+         BlockPos var2 = var1.getFirst().center();
+         for (List<LayerPlan.Slice> var4 : this.suspendedRows) {
+            if (var4.getFirst().center().equals(var2)) {
+               return;
+            }
+         }
+
+         this.suspendedRows.add(new ArrayList<>(var1));
+      }
+   }
+
+   private MineController.Task resumeRow() {
+      while (!this.suspendedRows.isEmpty()) {
+         List<LayerPlan.Slice> var1 = this.suspendedRows.removeFirst();
+         ArrayList<LayerPlan.Slice> var2 = new ArrayList<>();
+
+         for (LayerPlan.Slice var4 : var1) {
+            if (!this.sliceClear(var4) || this.middleDeferred.contains(var4.center())) {
+               var2.add(var4);
+            }
+         }
+
+         BlockPos var8 = var1.getFirst().center();
+         int var9 = this.resumedRows.merge(var8, 1, Integer::sum);
+         if (!var2.isEmpty() && var9 <= 2) {
+            // khối giữa để dành được thử lại từ đầu (đủ thang 5 lần), các ô 3x3 của nó không còn tính là để dành
+            for (LayerPlan.Slice var6 : var2) {
+               for (BlockPos var7 : Cells.plane(var6.center(), var6.face())) {
+                  this.middleDeferred.remove(var7);
+               }
+
+               this.middleTries.remove(var6.center());
+            }
+
+            AutoMineMod.LOGGER.info(
+               "[AutoMine] Quay lại hàng {}: đào nốt {} lát từ {} (lần {})", new Object[]{var2.getFirst().strip() + 1, var2.size(), var2.getFirst().center().toShortString(), var9}
+            );
+            return new MineController.RowTask(this.plan, var2);
+         }
+      }
+
+      return null;
+   }
+
+   /** 1.14.6: lập cùng một hàng từ cùng một lát lặp lại mà không đập được gì → bỏ phần hàng đó cho vét cuối tầng, không lặp mãi */
+   private boolean rowLooping(BlockPos var1) {
+      if (var1.equals(this.loopRowAt) && this.confirmed == this.loopRowConfirmed) {
+         if (++this.loopRowCount >= 4) {
+            AutoMineMod.LOGGER.info("[AutoMine] Hàng {}: lập lại {} lần từ {} mà không đào thêm được → để vét cuối tầng", this.plan.current() == null ? "?" : this.plan.current().strip() + 1, this.loopRowCount, var1.toShortString());
+            this.plan.index = Math.max(this.plan.index + 1, this.plan.runEnd(this.plan.index));
+            this.loopRowAt = null;
+            this.loopRowCount = 0;
+            return true;
+         }
+      } else {
+         this.loopRowAt = var1.toImmutable();
+         this.loopRowConfirmed = this.confirmed;
+         this.loopRowCount = 1;
+      }
+
+      return false;
    }
 
    private boolean sliceClear(LayerPlan.Slice var1) {
@@ -4216,7 +4354,23 @@ public final class MineController {
                               && MineController.this.middleDeferred.contains(var32.offset(var33))) {
                               // 1.14.3: lát kế bị mặt 3x3 để dành cuối tầng che kín → các lát sau cũng không với được từ phía này;
                               // kết thúc hàng, phần còn lại vét cuối tầng (trước đây thử từng lát, mỗi lát đứng chờ cả chục giây)
-                              AutoMineMod.LOGGER.info("[AutoMine] Hàng {}: {} lát sau khối giữa để dành bị che → để vét cuối tầng", this.strip + 1, this.run.size() - this.idx);
+                              AutoMineMod.LOGGER.info("[AutoMine] Hàng {}: {} lát sau khối giữa để dành bị che → đào hàng kế, hết hàng quay lại đào nốt", this.strip + 1, this.run.size() - this.idx);
+                              // 1.14.6: không bỏ cả phần còn lại của hàng cho vét cuối tầng (vét lẻ để sót dải); ghi lại để đào nốt đúng làn hàng này
+                              int var48 = this.idx;
+                              for (int var49 = this.idx - 1; var49 >= Math.max(0, this.idx - 3); var49--) {
+                                 if (this.run.get(var49).center().equals(var32.offset(var33))) {
+                                    var48 = var49;
+                                    break;
+                                 }
+                              }
+
+                              // chỉ các lát thẳng của hàng này (không lấy các lát rẽ sang hàng kế ở cuối hàng — chúng chắn đường sang hàng kế)
+                              int var50 = var48;
+                              while (var50 < this.run.size() && this.run.get(var50).face().getAxis() == this.run.get(var48).face().getAxis()) {
+                                 var50++;
+                              }
+
+                              MineController.this.suspendRow(this.run.subList(var48, var50));
                               this.stopBreaking();
                               Keys.releaseMove(MineController.this.mc);
                               this.idx = this.run.size();
@@ -5399,6 +5553,7 @@ public final class MineController {
       final String what;
       PathFinder.Dig dig;
       PathFinder.Dig activeDig;
+      boolean keepRelaxed;
       Predicate<BlockPos> goalTest;
       Integer yLo;
       Integer yHi;
@@ -5506,7 +5661,8 @@ public final class MineController {
             || !Cells.mineable(MineController.this.mc, var3)
             || Boolean.FALSE.equals(MineController.this.threeByThree)
             || MineController.this.fails.getOrDefault(var3, 0) > 0
-            || MineController.this.damInPlane(var3, var1.f())) {
+            || MineController.this.damInPlane(var3, var1.f())
+            || !this.keepRelaxed && MineController.this.suspendedInPlane(var3, var1.f())) {
             return false;
          } else {
             Vec3d var4 = MineController.this.mc.player.getEyePos();
@@ -5748,7 +5904,8 @@ public final class MineController {
 
                   this.activeDig = var1;
                   if (this.activeDig != null) {
-                     this.activeDig.preserved = MineController.this.waterDams;
+                     // 1.14.6: không đào đường xuyên qua phần hàng đang để dành (đào lẻ trong mặt 3x3 của hàng đó → đào lại lệch làn, sót dải)
+                     this.activeDig.preserved = this.keepRelaxed ? MineController.this.waterDams : MineController.this.keepIntact();
                   }
 
                   BlockPos var21 = this.goal;
@@ -5822,6 +5979,13 @@ public final class MineController {
                   this.idx = 1;
                   this.bestDist = Double.MAX_VALUE;
                   this.stuck = 0;
+                  if (this.path == null && !this.keepRelaxed && var1 != null && var1.preserved != MineController.this.waterDams) {
+                     // không có đường nào khác → được đào qua phần hàng để dành (không đứng im)
+                     this.keepRelaxed = true;
+                     AutoMineMod.LOGGER.info("[AutoMine] {}: không có đường tránh phần hàng để dành → cho đào qua", this.what);
+                     return MineController.Result.RUNNING;
+                  }
+
                   if (this.path == null) {
                      return this.failWith("không tìm được đường tới " + this.goal.toShortString() + (var1 != null ? " (kể cả đào)" : ""));
                   }

@@ -255,6 +255,10 @@ public final class AutoMineClientTest implements FabricClientGameTest {
          if (on("L2")) {
             this.pitEscape(ctx, sp);
          }
+
+         if (on("M1")) {
+            this.resumeRow(ctx, sp);
+         }
       } catch (Exception e) {
          throw new RuntimeException(e);
       }
@@ -811,6 +815,7 @@ public final class AutoMineClientTest implements FabricClientGameTest {
       });
       List<String> idle = new ArrayList<>();
       int place0 = Fake3x3Pickaxe.placements.get();
+      int strict0 = Fake3x3Pickaxe.strictRejects.get();
       int[] seen = {0};
       double[] last = {Double.NaN, 0};
       int[] still = {0, 0, -1};
@@ -866,6 +871,9 @@ public final class AutoMineClientTest implements FabricClientGameTest {
       });
       // đặt khối tính lúc đặt (khối kê cột / bắc cầu có thể bị đào lại về sau)
       placed = Math.max(placed, Fake3x3Pickaxe.placements.get() - place0);
+      // 1.14.6: server thật (anti-cheat) huỷ gói "đập xong" không có "bắt đầu đập" đi trước → khối hiện lại mãi
+      int strict = Fake3x3Pickaxe.strictRejects.get() - strict0;
+      check(strict == 0, tag + ": mọi nhát đập đều gửi \"bắt đầu đập\" trước \"đập xong\" (" + strict + " gói bị server huỷ)");
       String status = ctx.computeOnClient(mc -> AutoMineMod.controller.status());
       // không tự dừng = còn chạy hoặc đã đào xong khung (không phải bị tạm dừng)
       boolean running = ctx.computeOnClient(mc -> AutoMineMod.controller.running() || AutoMineMod.controller.state() == MineController.State.DONE);
@@ -1004,6 +1012,50 @@ public final class AutoMineClientTest implements FabricClientGameTest {
 
       Fake3x3Pickaxe.reject.clear();
       Fake3x3Pickaxe.restore.clear();
+   }
+
+   /**
+    * M1 (1.14.6, log người dùng): khối giữa hàng 1 bị server trả lại mãi (8 lần) giữa khối đá đặc → các lát sau bị che. Không được bỏ cả
+    * phần còn lại của hàng cho vét lẻ (sót dải giữa các hàng): đào các hàng kế rồi quay lại đào nốt hàng 1 đúng làn của nó.
+    */
+   void resumeRow(ClientGameTestContext ctx, TestSingleplayerContext sp) throws Exception {
+      int x0 = 700;
+      BlockPos mid = new BlockPos(x0 + 4, 101, 401);
+      this.trenchWorld(ctx, sp, x0, 400, 12, 9, List.of("fill " + (x0 - 2) + " 100 401 " + (x0 - 1) + " 101 401 air"), true, new int[0][], x0 - 1.5, 401.5);
+      Fake3x3Pickaxe.attempts.clear();
+      Fake3x3Pickaxe.reject.clear();
+      Fake3x3Pickaxe.restore.clear();
+      Fake3x3Pickaxe.reject.put(mid, 8);
+      this.runMine(ctx, "M1", x0, 400, 12, 9, 6000);
+      List<Object[]> all;
+      synchronized (Fake3x3Pickaxe.attempts) {
+         all = new ArrayList<>(Fake3x3Pickaxe.attempts);
+      }
+
+      int midHits = 0;
+      int laneAfter = 0;
+      int offLane = 0;
+      StringBuilder off = new StringBuilder();
+      for (Object[] a : all) {
+         BlockPos p = (BlockPos)a[0];
+         if (p.equals(mid)) {
+            midHits++;
+         } else if (p.getZ() == 401 && p.getY() == 101 && p.getX() > mid.getX()) {
+            laneAfter++;
+         }
+
+         // trong mặt hàng 1 (z 400..402) chỉ có nhát 3x3 đúng làn (tâm z=401, y giữa tầng); nhát lệch làn = đào đường / vét lẻ xuyên hàng 1
+         if (p.getZ() >= 400 && p.getZ() <= 402 && (p.getY() != 101 || p.getZ() != 401)) {
+            offLane++;
+            off.append(p.toShortString()).append("; ");
+         }
+      }
+
+      AutoMineMod.LOGGER.info("[GameTest] M1: {} nhát vào khối giữa, {} nhát làn hàng 1 sau nó, {} nhát lệch làn: {}", midHits, laneAfter, offLane, off);
+      check(midHits >= 9, "M1: khối giữa được thử lại tới khi vỡ (" + midHits + " nhát, cần ≥ 9)");
+      check(laneAfter >= 5, "M1: quay lại đào nốt hàng 1 đúng làn sau khối giữa (" + laneAfter + " nhát, cần ≥ 5)");
+      check(offLane == 0, "M1: không đào đường / vét lẻ lệch làn xuyên hàng 1 (" + offLane + " nhát: " + off + ")");
+      Fake3x3Pickaxe.reject.clear();
    }
 
    /** K4: 2 khối giữa liền nhau hiện lại lệch nhau vài tick, khối xa hiện trước → khối gần che khối xa; phải đập khối gần trước, không đứng ngắm mãi */

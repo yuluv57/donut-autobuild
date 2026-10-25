@@ -40,6 +40,10 @@ public final class Fake3x3Pickaxe implements ModInitializer {
    public static final java.util.concurrent.atomic.AtomicInteger placements = new java.util.concurrent.atomic.AtomicInteger();
    /** mọi nhát phá của người chơi (không tính 8 khối 3x3 kéo theo): {ô, x, z, đang ngồi, bị huỷ} */
    public static final List<Object[]> attempts = Collections.synchronizedList(new ArrayList<>());
+   /** server giả soát thứ tự gói đập như anti-cheat thật (xem StrictDigMixin) */
+   public static volatile boolean strictDig = true;
+   /** số gói "đập xong" bị huỷ vì không có "bắt đầu đập" tương ứng */
+   public static final java.util.concurrent.atomic.AtomicInteger strictRejects = new java.util.concurrent.atomic.AtomicInteger();
 
    @Override
    public void onInitialize() {
