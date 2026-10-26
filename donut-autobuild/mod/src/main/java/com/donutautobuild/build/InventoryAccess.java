@@ -46,29 +46,138 @@ public final class InventoryAccess {
         if (mc.player == null || mc.interactionManager == null || mc.currentScreen != null
             || mc.player.currentScreenHandler != mc.player.playerScreenHandler
             || !mc.player.currentScreenHandler.getCursorStack().isEmpty() || !synced(mc)) return false;
-        if (equipMatches(mc.player.getMainHandStack(), item)) return true;
         PlayerInventory inventory = mc.player.getInventory();
+        if (equipMatches(mc.player.getMainHandStack(), item)) { hotbarUsed[inventory.selectedSlot] = System.currentTimeMillis(); return true; }
         for (int slot = 0; slot < 9; slot++) {
             if (equipMatches(inventory.getStack(slot), item)) {
+                // 3.0.123: đồ đã ở thanh nóng → đổi ô như bấm phím số 1–9 (không mở túi đồ)
                 if (inventory.selectedSlot != slot) trace(mc, "chọn ô " + slot + " (" + itemName(inventory.getStack(slot)) + ")");
                 inventory.selectedSlot = slot;
+                hotbarUsed[slot] = System.currentTimeMillis();
                 return true;
             }
         }
         for (int slot = 9; slot < 36; slot++) {
             if (equipMatches(inventory.getStack(slot), item)) {
-                String before = "ô " + slot + "=" + itemName(inventory.getStack(slot)) + " ↔ ô " + hotbarSlot + "=" + itemName(inventory.getStack(hotbarSlot));
-                mc.interactionManager.clickSlot(mc.player.playerScreenHandler.syncId, slot, hotbarSlot, SlotActionType.SWAP, mc.player);
-                inventory.selectedSlot = hotbarSlot;
+                // 3.0.123: phải bấm vào túi đồ → đứng yên hẳn như người thật mở túi (đang đi/chạy mà bấm ô thì anti-cheat kéo lùi)
+                if (!invReady(mc)) return false;
+                int target = pickHotbar(mc, hotbarSlot);
+                String before = "ô " + slot + "=" + itemName(inventory.getStack(slot)) + " ↔ ô " + target + "=" + itemName(inventory.getStack(target));
+                mc.interactionManager.clickSlot(mc.player.playerScreenHandler.syncId, slot, target, SlotActionType.SWAP, mc.player);
+                invClicked();
+                inventory.selectedSlot = target;
+                hotbarUsed[target] = System.currentTimeMillis();
                 noteClick(mc, "đổi đồ (SWAP) " + before);
-                // 3.0.122: log 18:18:34 / 18:21:32 — server KHÔNG làm cú SWAP (0,9 giây sau vẫn cầm Composter) trong khi server không gửi
-                // gì về khi SWAP thành công → client không có cách biết. Giờ sau mỗi SWAP xin server gửi lại cả túi đồ NGAY (gói đi sau
-                // gói SWAP, server xử lý theo thứ tự) và khoá đặt khối tới khi nhận được: túi đồ server gửi về mới là thật.
+                // 3.0.122: sau SWAP xin server gửi lại cả túi đồ (server bỏ qua SWAP → đặt nhầm loại); 3.0.123: gói đóng túi gửi ngay sau
                 confirmNow(mc, "vừa đổi đồ (SWAP) " + before);
                 return false;
             }
         }
         return false;
+    }
+
+    // ===== 3.0.123: bấm vào túi đồ như người thật =====
+    // Log 3.0.122 (19:29:51, 19:30:05): mod bấm ô túi đồ (SWAP, xin gửi lại túi đồ) mà KHÔNG BAO GIỜ gửi gói "đóng túi" như khi người
+    // chơi đóng túi (E). Anti-cheat coi túi đồ đang mở → di chuyển bị kéo lùi, đặt khối bị huỷ ("đặt rồi nhưng không hiện"), đập bị huỷ
+    // ("client thấy vỡ nhưng server chưa phá"). Giờ: chỉ bấm khi đứng yên (hết trượt, không chạy nhanh) và cuối tick gửi gói đóng túi.
+    private static final long[] hotbarUsed = new long[9];
+    private static boolean closePending;
+    private static long stillWantedAt;
+
+    /** đứng yên đủ để bấm vào túi đồ; chưa yên thì yêu cầu BuildController dừng lại (stillWanted) */
+    public static boolean invReady(MinecraftClient mc) {
+        if (mc.player == null) return false;
+        boolean still;
+        try {
+            net.minecraft.util.math.Vec3d velocity = mc.player.getVelocity();
+            still = (mc.player.isOnGround() || mc.player.isTouchingWater())
+                && (velocity == null || velocity.horizontalLengthSquared() < 4.0E-4)
+                && !mc.player.isSprinting();
+        } catch (RuntimeException error) {
+            still = true;
+        }
+        if (!still) stillWantedAt = System.currentTimeMillis();
+        return still;
+    }
+
+    /** vừa có ít nhất 1 cú bấm vào ô túi đồ chính → cuối tick gửi gói đóng túi */
+    public static void invClicked() {
+        closePending = true;
+        lastInvClickAt = System.currentTimeMillis();
+    }
+
+    private static long lastInvClickAt;
+
+    /** ms từ lần bấm ô túi đồ gần nhất (cho log khi bị server kéo lùi) */
+    public static long sinceInvClick() {
+        return lastInvClickAt == 0L ? -1L : System.currentTimeMillis() - lastInvClickAt;
+    }
+
+    /** trong 200 ms qua có việc chờ đứng yên để bấm túi đồ */
+    public static boolean stillWanted() {
+        return System.currentTimeMillis() - stillWantedAt < 200L;
+    }
+
+    /** cuối tick (AutoBuildMod): đã bấm ô túi đồ → gửi gói đóng túi (CloseHandledScreen của túi đồ, như khi người chơi đóng túi) */
+    public static void flushClose(MinecraftClient mc) {
+        if (!closePending) return;
+        closePending = false;
+        if (mc.player == null || mc.getNetworkHandler() == null) return;
+        if (mc.player.currentScreenHandler != mc.player.playerScreenHandler) return;
+        if (mc.currentScreen instanceof net.minecraft.client.gui.screen.ingame.InventoryScreen) return;
+        try {
+            mc.getNetworkHandler().sendPacket(new net.minecraft.network.packet.c2s.play.CloseHandledScreenC2SPacket(mc.player.playerScreenHandler.syncId));
+        } catch (Throwable error) {
+            AutoBuildMod.LOGGER.warn("[AutoBuild] Không gửi được gói đóng túi đồ: {}", error.toString());
+        }
+    }
+
+    /**
+     * 3.0.123 (người dùng: "dùng tất cả ô thanh nóng, miễn tay trái cầm totem"): chọn ô thanh nóng nhận đồ từ túi. Giữ 1 ô cúp;
+     * ưu tiên ô trống, rồi ô đang để totem (totem đã ở tay trái), rồi ô lâu nhất chưa dùng. Vật liệu dùng nhiều nằm sẵn trên thanh
+     * nóng → đổi bằng phím số, ít phải mở túi.
+     */
+    private static int pickHotbar(MinecraftClient mc, int fallback) {
+        PlayerInventory inventory = mc.player.getInventory();
+        int pickaxe = -1;
+        for (int slot = 0; slot < 9 && pickaxe < 0; slot++)
+            if (SurvivalSupplies.usablePickaxe(inventory.getStack(slot))) pickaxe = slot;
+        int best = -1; long bestScore = Long.MAX_VALUE;
+        for (int slot = 0; slot < 9; slot++) {
+            if (slot == pickaxe) continue;
+            ItemStack stack = inventory.getStack(slot);
+            long score = stack.isEmpty() ? -2L : stack.isOf(net.minecraft.item.Items.TOTEM_OF_UNDYING) ? -1L : hotbarUsed[slot];
+            if (score < bestScore) { bestScore = score; best = slot; }
+        }
+        return best >= 0 ? best : Math.max(0, Math.min(8, fallback));
+    }
+
+    /** 3.0.123: tay trái luôn cầm totem; trống/khác thì đưa 1 totem trong túi lên (cùng điều kiện bấm túi đồ) */
+    public static boolean offhandTotem(MinecraftClient mc) {
+        try {
+            return offhandTotemNow(mc);
+        } catch (RuntimeException error) {
+            return false;
+        }
+    }
+
+    private static boolean offhandTotemNow(MinecraftClient mc) {
+        if (mc.player == null || mc.interactionManager == null || mc.currentScreen != null
+            || mc.player.currentScreenHandler != mc.player.playerScreenHandler
+            || !mc.player.currentScreenHandler.getCursorStack().isEmpty() || mc.player.getInventory() == null) return false;
+        if (mc.player.getOffHandStack().isOf(net.minecraft.item.Items.TOTEM_OF_UNDYING)) return false;
+        PlayerInventory inventory = mc.player.getInventory();
+        int from = -1;
+        for (int slot = 9; slot < 36 && from < 0; slot++) if (inventory.getStack(slot).isOf(net.minecraft.item.Items.TOTEM_OF_UNDYING)) from = slot;
+        for (int slot = 0; slot < 9 && from < 0; slot++) if (inventory.getStack(slot).isOf(net.minecraft.item.Items.TOTEM_OF_UNDYING)) from = slot;
+        if (from < 0 || !synced(mc) || !invReady(mc)) return false;
+        int screenSlot = from < 9 ? 36 + from : from;
+        mc.interactionManager.clickSlot(mc.player.playerScreenHandler.syncId, screenSlot, 40, SlotActionType.SWAP, mc.player);
+        invClicked();
+        noteClick(mc, "đưa totem ở ô " + from + " lên tay trái");
+        markDirty(mc, "vừa đưa totem lên tay trái");
+        AutoBuildMod.LOGGER.info("[AutoBuild] Tay trái chưa cầm totem → đưa totem ở ô {} lên tay trái", from);
+        return true;
     }
 
 
@@ -389,7 +498,7 @@ public final class InventoryAccess {
          }
 
          long var7 = dirty ? Math.max(600L, rttMs + 200L) : 4000L;
-         if (wantResync != null && !var3 && var2 - forcedAt >= var7 && var2 - lastClickAt >= rttMs + 250L && resyncSentAt == 0L) {
+         if (wantResync != null && !var3 && var2 - forcedAt >= var7 && var2 - lastClickAt >= rttMs + 250L && resyncSentAt == 0L && invReady(var0)) {
             forcedAt = var2;
             forcedCount++;
 
@@ -405,6 +514,7 @@ public final class InventoryAccess {
    public static void confirmNow(MinecraftClient var0, String var1) {
       markDirty(var0, var1);
       if (resyncSentAt == 0L
+         && invReady(var0)
          && var0.getNetworkHandler() != null
          && var0.player.currentScreenHandler == var0.player.playerScreenHandler
          && var0.player.playerScreenHandler.getCursorStack().isEmpty()) {
@@ -449,6 +559,7 @@ public final class InventoryAccess {
                         new Int2ObjectOpenHashMap<>()
                      )
                   );
+               invClicked();
                resyncSentAt = var2;
                resyncSentAtLog = var2;
                menuSinceSend = false;

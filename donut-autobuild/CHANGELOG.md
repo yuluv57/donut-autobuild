@@ -8,6 +8,48 @@ Các bản không có mục riêng: 2.0.0–2.9.9 (16–18/09), 3.0.0–3.0.16 (
 
 ---
 
+## 3.0.123 — 26/10/2026 · hết "túi đồ mở" khi đi/đặt/đập, cho đồ vào khối chứa, ender chest 1 lần, chọn home cho mod
+
+### 1. Vẫn bị giật nhiều (cả khi chỉ đi trên sàn phẳng, ngay lúc bắt đầu)
+- **Nguyên nhân (log 3.0.122):** khi đổi đồ, người thật mở túi (E), bấm ô, rồi đóng túi; lúc đóng, client gửi gói "đóng túi" lên server. Mod bấm thẳng vào ô túi đồ (SWAP đồ lên tay, xin server gửi lại túi đồ, gộp xô, cất con trỏ) nhưng không bao giờ gửi gói đóng túi. Anti-cheat coi túi đồ đang mở, nên:
+  - di chuyển → bị kéo lùi;
+  - đặt khối → bị huỷ ("đặt rồi nhưng không hiện");
+  - đập khối → bị huỷ ("client thấy vỡ nhưng server chưa phá").
+  Log khớp: 19:29:51 xin gửi lại túi đồ → ngay sau đó đập ender chest không vỡ; 19:30:05 SWAP Stone → Stone "không hiện" → bị giật. 3.0.122 xin gửi lại túi đồ sau MỖI lần SWAP nên càng giật nhiều.
+- **Sửa (`InventoryAccess`):**
+  - Mọi cú bấm vào túi đồ chỉ làm khi đứng yên: trên đất, hết trượt, không chạy nhanh. Chưa yên thì mod dừng lại (không phanh giữa lúc nhảy).
+  - Cuối tick gửi gói đóng túi (`CloseHandledScreenC2SPacket`), như khi người chơi đóng túi.
+  - Dùng cả 9 ô thanh nóng (giữ 1 ô cúp). Đồ từ túi lên thanh nóng vào ô trống, rồi ô đang để totem, rồi ô lâu nhất chưa dùng. Vật liệu dùng nhiều nằm sẵn trên thanh nóng, đổi bằng phím số nên ít phải mở túi.
+  - Tay trái luôn cầm totem; tay trái không có totem thì đưa 1 totem trong túi lên.
+  - Log `[GIẬT]` mỗi lần bị kéo lùi: bấm túi đồ cách bao lâu, đặt khối cách bao lâu, chạy nhanh/ngồi, phím đang bấm, khối dưới chân đã được server xác nhận chưa.
+
+### 2. Cho đồ vào khối chứa theo bản vẽ
+- Áp dụng cho dropper, dispenser, hopper, rương (cả rương đôi), thùng, lò các loại, giá pha thuốc. Đồ đọc từ block entity trong file `.litematic` (`SchematicPlan.containerItems`).
+- Đặt xong là mở ra cho đồ vào ngay. Khối có sẵn từ trước (vào lại server, xây tiếp) mà chưa đúng đồ cũng được làm khi đứng gần.
+- Phải đúng loại và số lượng, ô nào cũng được (ưu tiên ô như bản vẽ). Đồ dư hoặc sai loại thì lấy ra. Đồ có tên riêng phải đúng tên.
+- Thiếu đồ có tên riêng → báo chat, để trống, xây tiếp; lần sau trong túi có đồ đúng tên thì tự cho vào.
+- Thiếu đồ thường → lấy như vật liệu (ender chest → Order → /shop) rồi quay lại.
+- Đồ dùng cho khối chứa không bị `/sell` và không bị cất vào ender chest.
+
+### 3. Ender chest đặt/mở 2 lần liền nhau
+- Lần lấy đồ thiếu lúc vừa lên tầng mới giờ cất luôn đồ tầng này không dùng trong cùng lần mở. Không còn mở lần 2 ngay sau đó.
+
+### 4. Chọn home cho mod (tab Cài đặt, menu U)
+- **"Home cho mod: Không dùng / Home N"**, mặc định Không dùng. Lần đầu chạy 3.0.123, số home cũ mod tự chọn bị bỏ.
+- **Không dùng:** mod không bao giờ /home hay /sethome. Kẹt ghost block thì thoát ra vào lại.
+- **Home N:** home trống người chơi giao cho mod.
+  - Từ tầng 3, mỗi lần lên tầng mới mod xoá home N cũ (/home → chọn home → xô lava → bấm xác nhận tới khi báo đã xoá) rồi /sethome ở tầng đang xây.
+  - `/sethome` trơn tạo ở ô trống đầu tiên; nếu ô đó không phải N thì gửi `/sethome N` rồi mở danh sách kiểm tra.
+  - Lỡ ngã hoặc kẹt thì /home N.
+  - Các home khác không bao giờ bị đụng tới.
+
+### Kiểm thử
+- Bộ mới cho mục 2 (giả lập menu và cú bấm): đủ 3 xô nước + 10 mũi tên vào dispenser và lấy đất lạ ra; đồ tên riêng thiếu → báo, đồ thường vẫn cho vào, có đồ đúng tên thì cho tiếp; chồng 64 chỉ 1–3 cú bấm; gộp rương đôi. 37 phép, qua hết.
+- Các bộ cũ: BuildQuality 171, HeldPlacement 101, MovementResume 275, MovementMining (đi, tìm đường, đào giữ chuột) 206, Run122 15 — qua. Các bộ còn lại dừng ở cùng chỗ như mã gốc 3.0.121.
+- Chưa thử trên DonutSMP.
+
+---
+
 ## 3.0.122 — 26/10/2026 · phím/chuột thật, đào không bị huỷ giữa chừng, bỏ qua khối chỉ khác trạng thái
 
 Bản đầu tiên build bằng Gradle (Loom) từ mã nguồn trong repo. Sửa để build được: `OrderCollector` gọi `LoreComponent.lines()` (trước là tên chưa map `comp_2400`), `build.gradle` thêm `fabric-message-api-v1` (chỉ để biên dịch, không đóng kèm).

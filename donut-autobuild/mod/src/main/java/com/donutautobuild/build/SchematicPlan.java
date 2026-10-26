@@ -34,6 +34,8 @@ public final class SchematicPlan {
    public List<SchematicPlan.Target> targets = List.of();
    /** 3.0.90: crafter trong bản vẽ → các ô bị tắt (bit i = ô i, đọc từ NBT "disabled_slots" của block entity trong .litematic) */
    public final Map<BlockPos, Integer> crafterMasks = new LinkedHashMap<>();
+   /** 3.0.123: khối chứa (dropper, dispenser, hopper, rương, thùng, lò…) có đồ trong bản vẽ → danh sách "Items" (NBT đã qua DataFixer) */
+   public final Map<BlockPos, net.minecraft.nbt.NbtList> containerItems = new LinkedHashMap<>();
    /** số crafter trong bản vẽ có block entity (đọc được cấu hình) */
    public int crafterWithData;
    public boolean loaded;
@@ -200,6 +202,15 @@ public final class SchematicPlan {
 
                   this.crafterMasks.put(var5.toImmutable(), var13);
                   this.crafterWithData++;
+               }
+            }
+            if (var3.be() != null && ContainerFill.fillable(var4)) {
+               net.minecraft.nbt.NbtCompound var15 = var3.be().get(new BlockPos(this.x, this.y, this.z));
+               if (var15 != null && var15.contains("Items", 9)) {
+                  net.minecraft.nbt.NbtList var16 = var15.getList("Items", 10);
+                  if (!var16.isEmpty()) {
+                     this.containerItems.put(var5.toImmutable(), var16.copy());
+                  }
                }
             }
             if (var7 != null && var7.state() != var4) {

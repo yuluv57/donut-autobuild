@@ -173,8 +173,25 @@ public final class BuildScreen extends LegacyPanelScreen {
         toggle(9, x(), half(), "Kê đúng thiết kế", () -> config.exactBlocks, value -> config.exactBlocks = value);
         toggle(9, right, w() - half() - 4, "Tự đập khối sai", () -> config.fixWrong, value -> config.fixWrong = value);
         toggle(10, x(), half(), "Tắt Easy Place", () -> config.disableEasyPlace, value -> config.disableEasyPlace = value);
+        // 3.0.123: home dành cho mod. "Không dùng" = mod không bao giờ /home, /sethome (kẹt thì thoát ra vào lại).
+        // Home N = home trống bạn giao cho mod: từ tầng 3 mỗi tầng mod xoá home N cũ rồi /sethome N, lỡ ngã thì /home N.
+        rowButton(10, right, 28, "◀", () -> setModHome(config.modHomeNumber - 1), "Đổi số home cho mod");
+        ButtonWidget[] home = new ButtonWidget[1];
+        home[0] = rowButton(10, right + 30, w() - half() - 34, homeText(), () -> { setModHome(config.modHomeNumber + 1); home[0].setMessage(Text.literal(homeText())); },
+            "Không dùng: mod không bao giờ /home, /sethome. Home N: chọn 1 home còn TRỐNG giao cho mod — từ tầng 3 mod tự xoá home N cũ và /sethome N ở mỗi tầng, lỡ ngã thì /home N. Các home khác mod không đụng tới.");
         rowButton(11, x(), w(), "§aLưu cài đặt", this::saveSettings, null);
         return 12;
+    }
+    private String homeText() { return config.modHomeNumber <= 0 ? "Home cho mod: §eKhông dùng" : "Home cho mod: §aHome " + config.modHomeNumber; }
+    private void setModHome(int number) {
+        int next = number < 0 ? 10 : number > 10 ? 0 : number;
+        if (next != config.modHomeNumber) {
+            config.modHomeNumber = next; config.useHome = next > 0;
+            // đổi số home → quên home cũ mod đã đặt (không /home về số cũ nữa)
+            config.ownHomeNumber = 0; config.ownHomeManual = false; config.ownHomeLayer = Integer.MIN_VALUE;
+            config.saveQuietly();
+        }
+        if (tab == Tab.SETTINGS) clearAndInit();
     }
     private void toggle(int row, int x, int width, String name, Supplier<Boolean> get, Consumer<Boolean> set) {
         ButtonWidget[] widget = new ButtonWidget[1];

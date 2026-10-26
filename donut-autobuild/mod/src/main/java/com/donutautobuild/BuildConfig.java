@@ -80,6 +80,9 @@ public final class BuildConfig {
    public boolean ownHomeManual;
    // 3.0.99: mod tự /sethome khi lên tầng mới (tắt = chỉ dùng home người dùng chọn)
    public boolean autoSetHome = true;
+   // 3.0.123 (người dùng): home dành riêng cho mod, chọn ở tab Cài đặt. 0 = không dùng: mod không bao giờ /home, /sethome.
+   // N > 0: home trống người dùng giao cho mod tự xử — từ tầng homeMinLayer mỗi tầng mod xoá home N cũ rồi /sethome N, ngã thì /home N.
+   public int modHomeNumber = 0;
    // 3.0.90: tự chỉnh crafter (tắt ô) ngay sau khi đặt; cấu hình theo tầng: khóa "tên placement@gốc|Y" → bit ô bị tắt
    public boolean configureCrafters = true;
    // 3.0.91: Order không có hàng → tìm mua ở /shop, không mua món có giá > shopMaxPrice
@@ -99,7 +102,7 @@ public final class BuildConfig {
    public long moneySince;
    public java.util.Map<String, Integer> crafterLayerMasks = new java.util.HashMap<>();
    public int configVersion;
-   private static final int CURRENT_VERSION = 9;
+   private static final int CURRENT_VERSION = 10;
    public int maxScaffoldBlocks = 2048;
    public int maxBridgeBlocks = 8;
    public int pathNodeLimit = 20000;
@@ -154,6 +157,15 @@ public final class BuildConfig {
             var0.configVersion = 9;
          }
 
+         if (var0.configVersion < 10) {
+            // 3.0.123: home cũ do mod tự chọn số (có thể trùng home của người chơi) → bỏ; mặc định "không dùng home" tới khi người dùng chọn
+            var0.modHomeNumber = 0;
+            var0.ownHomeNumber = 0;
+            var0.ownHomeManual = false;
+            var0.ownHomeLayer = Integer.MIN_VALUE;
+            var0.configVersion = 10;
+         }
+
          var0.clamp();
          var0.save();
       } catch (Exception var2) {
@@ -192,6 +204,8 @@ public final class BuildConfig {
       this.materialMaxStacks = Math.clamp((long)this.materialMaxStacks, 1, 27);
       this.reserveFreeSlots = Math.clamp((long)this.reserveFreeSlots, 1, 20);
       this.workingHotbarSlot = Math.clamp((long)this.workingHotbarSlot, 0, 8);
+      this.modHomeNumber = Math.clamp((long)this.modHomeNumber, 0, 54);
+      this.useHome = this.modHomeNumber > 0;
       this.minHealth = Math.clamp((long)this.minHealth, 1, 19);
       this.maxScaffoldBlocks = Math.clamp((long)this.maxScaffoldBlocks, 0, 8192);
       this.maxBridgeBlocks = Math.clamp((long)this.maxBridgeBlocks, 0, 64);

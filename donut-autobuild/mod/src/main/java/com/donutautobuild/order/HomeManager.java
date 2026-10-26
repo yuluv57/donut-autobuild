@@ -55,6 +55,8 @@ public final class HomeManager {
    // SET
    private int ownNumber;
    private int expectNumber;
+   // 3.0.123: số home người dùng giao cho mod (tab Cài đặt); /sethome phải ra đúng số này
+   private int wantNumber;
    private Map<Integer, Integer> homesBefore = new HashMap<>();
    private int newNumber;
    private Vec3d setPos;
@@ -118,7 +120,13 @@ public final class HomeManager {
    }
 
    public void startSet(MinecraftClient var1, int var2) {
+      this.startSet(var1, var2, 0);
+   }
+
+   /** var2 = home cũ của mod cần xoá trước; var3 = số home mod phải đặt (0 = ô trống đầu tiên như cũ) */
+   public void startSet(MinecraftClient var1, int var2, int var3) {
       this.reset();
+      this.wantNumber = Math.max(0, var3);
       this.job = HomeManager.Job.SET;
       this.ownNumber = Math.max(0, var2);
       this.step = HomeManager.Step.SEND_LIST;
@@ -398,6 +406,9 @@ public final class HomeManager {
 
                   int var4 = var3.get(this.ownNumber);
                   this.ownSlot = var4;
+                  // 3.0.123: danh sách home "trước khi đặt" = các home còn lại sau khi xoá home cũ (để kiểm tra /sethome N)
+                  this.homesBefore = new HashMap<>(var3);
+                  this.homesBefore.remove(this.ownNumber);
                   this.freeBefore = var2[0];
                   this.clickedSync = this.ownedSync;
                   var1.interactionManager.clickSlot(this.ownedSync, var4, 0, SlotActionType.PICKUP, var1.player);
@@ -479,6 +490,19 @@ public final class HomeManager {
                }
 
                this.setPos = var1.player.getPos();
+               if (this.wantNumber > 0 && this.expectNumber != this.wantNumber) {
+                  // 3.0.123: /sethome trơn tạo home ở ô trống đầu tiên (home expectNumber), không phải home người dùng giao cho mod →
+                  // gửi /sethome N rồi mở lại danh sách kiểm tra home mới nằm ở số nào
+                  this.send(var1, cmd(this.config.setHomeCommand, "sethome") + " " + this.wantNumber);
+                  AutoBuildMod.LOGGER.info("[AutoBuild] Home: ô trống đầu tiên là home {} (không phải home {} của mod) → gửi /sethome {} rồi kiểm tra lại", new Object[]{this.expectNumber, this.wantNumber, this.wantNumber});
+                  this.expectNumber = this.wantNumber;
+                  this.newNumber = -1;
+                  this.step = HomeManager.Step.WAIT_SET;
+                  this.age = 0;
+                  this.status = "Đặt home " + this.wantNumber + " ở tầng đang xây (kiểm tra lại)";
+                  break;
+               }
+
                this.send(var1, cmd(this.config.setHomeCommand, "sethome"));
                // 3.0.93: /sethome luôn tạo home ở ô trống đầu tiên (trái → phải) đã đọc trước đó → không mở /home kiểm tra lại
                this.newNumber = this.expectNumber;
@@ -702,6 +726,10 @@ public final class HomeManager {
 
       if (var3 > 0) {
          this.newNumber = var3;
+         if (this.wantNumber > 0 && var3 != this.wantNumber) {
+            AutoBuildMod.LOGGER.info("[AutoBuild] Home: server đặt home mới vào home {} chứ không phải home {} → mod coi home {} là home của mod (đã do mod tạo)", new Object[]{var3, this.wantNumber, var3});
+         }
+
          this.finish(var1, HomeManager.Result.DONE, "Đã đặt home " + var3 + " tại tầng đang xây");
       } else {
          this.newNumber = 0;

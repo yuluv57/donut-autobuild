@@ -81,6 +81,8 @@ public final class AutoBuildMod implements ClientModInitializer {
          } finally {
             // 3.0.122: phím mod bấm trong tick này → sự kiện phím/chuột thật
             com.donutautobuild.build.Input.flush(var4x);
+            // 3.0.123: đã bấm vào ô túi đồ trong tick này → gửi gói đóng túi như người chơi đóng túi (E)
+            com.donutautobuild.build.InventoryAccess.flushClose(var4x);
          }
       });
       ClientCommandRegistrationCallback.EVENT
