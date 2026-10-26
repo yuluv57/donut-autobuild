@@ -87,6 +87,13 @@ public final class HomeManager {
       return this.tpLag;
    }
 
+   /** 3.0.125: server báo home không tồn tại ("Home does not exist") */
+   public boolean homeMissing() {
+      return this.tpMissing;
+   }
+
+   private boolean tpMissing;
+
    public boolean teleporting() {
       return this.job == HomeManager.Job.TELEPORT;
    }
@@ -138,6 +145,7 @@ public final class HomeManager {
       this.job = HomeManager.Job.TELEPORT;
       this.tpNumber = var2;
       this.tpTarget = var3;
+      this.tpMissing = false;
       this.step = HomeManager.Step.SEND_TP;
       this.status = "Về home " + var2 + " (tầng đang xây)";
    }
@@ -545,6 +553,13 @@ public final class HomeManager {
 
                if (var1.player.getPos().squaredDistanceTo(this.tpTarget) < 2.25) {
                   this.finish(var1, HomeManager.Result.DONE, "Đã về home " + this.tpNumber + " sau " + this.age / 20.0F + " giây");
+                  return;
+               }
+
+               if (ChatWatch.since(this.tpMark, "does not exist", "doesn't exist", "not found", "khong ton tai", "khong co home")) {
+                  // 3.0.125 (log 20:47:03 "Home does not exist"): home của mod đã mất (bị xoá) → báo ngay, không chờ 16 giây × 2
+                  this.tpMissing = true;
+                  this.finish(var1, HomeManager.Result.FAILED, "Server báo home " + this.tpNumber + " không tồn tại");
                   return;
                }
 

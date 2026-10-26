@@ -8,6 +8,50 @@ Các bản không có mục riêng: 2.0.0–2.9.9 (16–18/09), 3.0.0–3.0.16 (
 
 ---
 
+## 3.0.125 — 26/10/2026 · mua xô ngay khi chưa có, shop mua tới khi đủ, khối chứa bị che kín, home mất, ender chest
+
+### 1. Chờ đổ nước mãi mà trong túi không có xô nước (log 3.0.124, 20:48:02–20:48:35)
+- **Nguyên nhân:** mod đòi đứng đúng chỗ và ngắm trúng mặt đổ rồi mới mua xô. Tâm ngắm cứ trúng khối bên cạnh (Smooth Stone Slab Y=-53), nên mod "đi lại gần hơn", rồi lại chọn đúng chỗ đứng cũ. Vòng lặp này không bao giờ tới bước mua.
+- **Sửa (người dùng chọn):** trong túi chưa có xô thì mod đứng yên mua ngay tại chỗ ở /shop, có xô rồi mới đi tới ngắm đổ.
+
+### 2. /shop chỉ mua 6 lần mỗi lần mở
+- **Nguyên nhân:** mỗi lần mở shop mod chỉ bấm mua tối đa 6 lần. Log: cần 476 Bone Meal, mua 384 rồi dừng, thiếu 92.
+- **Sửa:** mod bấm mua tới khi đủ. Chỉ dừng khi đủ, khi túi đầy, khi giá vượt trần, hoặc khi bấm mua mà không nhận được hàng (hết tiền). 64 lần là mức chặn an toàn.
+- Khối chứa còn thiếu đồ thường: nếu lần lấy trước có thêm được đồ thì mod lấy tiếp ngay, không chờ 60 giây.
+
+### 3. Khối chứa bị che kín, đi xuống tầng dưới rồi bị rơi
+- **Nguyên nhân 1:** client không biết bên trong khối chứa có gì nếu chưa mở. Vì vậy mọi khối chứa đặt từ phiên trước đều bị coi là chưa đủ đồ, kể cả khối đã cho đủ rồi.
+  - **Sửa:** mod lưu lại khối chứa nào đã cho đủ đồ (trong cấu hình, theo placement + gốc + toạ độ). Vào lại game thì mod không mở lại các khối đó.
+  - Khi mod đặt lại một khối chứa, khối đó bị xoá khỏi danh sách đã cho đủ.
+- **Nguyên nhân 2:** cột khối chứa 217848, Y -57→-54 đã bị bao kín, không có mặt nào để mở.
+  - **Sửa (người dùng chọn):** khi khối chứa không còn mặt nào hở, hoặc đi tới 3 lần vẫn không mở được, mod đập 1 khối đang che.
+  - Ưu tiên khối thường, khối ở phía trên, khối có mặt lộ ra ngoài.
+  - Observer, piston, repeater, comparator, dây redstone, khối có block entity: chỉ đập khi không còn khối nào khác.
+  - Không bao giờ đập khối chứa khác có đồ trong bản vẽ (đồ bên trong sẽ rơi ra).
+  - Khối vừa đập chỉ được đặt lại sau khi khối chứa đã cho đủ đồ, hoặc mod bỏ qua khối chứa đó (tối đa 3 phút).
+  - Thử 3 khối che vẫn không được thì mod báo chat rồi xây tiếp.
+- Mod vẫn quay xuống mọi tầng dưới để cho đủ đồ rồi mới lên tầng (người dùng chọn).
+
+### 4. "/home 3" → "Home does not exist"
+- **Nguyên nhân:** mod nhớ từ phiên trước là đã đặt home 3, nhưng home đó không còn trên server. Mod không đọc thông báo này, nên đứng chờ.
+- **Sửa:**
+  - Thấy thông báo "does not exist" thì mod dừng chờ ngay.
+  - Mod quên home cũ và tự tìm đường lên.
+  - Tới chỗ an toàn ở tầng đang xây thì mod /sethome lại đúng số home đã chọn ở tab Cài đặt.
+
+### 5. Hopper hướng vào rương vẫn chưa đặt được
+- Chưa rõ nguyên nhân từ log (không có dòng nào cho thấy mod đã đứng trên nóc rương).
+- Đã thêm log `[KÊ TẠM]`: mỗi lần không kê khối tạm, ghi rõ lý do và mod đang đứng trên khối gì.
+- Ô trên khối thấp có "khối không khí" trong bản vẽ thì vẫn được kê tạm.
+
+### 6. Đặt ender chest: "không ngắm được mặt trên khối"
+- **Nguyên nhân:** mod ngồi xuống để đặt ender chest, nhưng lúc chọn ô lại kiểm tra tia ngắm từ mắt khi đứng. Ngồi xuống thì mắt thấp hơn, nên tia trúng cạnh khối khác.
+- **Sửa:**
+  - Mod kiểm tra tia ngắm từ mắt lúc ngồi.
+  - Ngắm 4 giây không được thì mod thử ngay ô khác quanh chỗ đứng (tối đa 3 ô), không bỏ qua 30 giây.
+
+---
+
 ## 3.0.124 — 26/10/2026 · đặt hopper từ nóc rương, shop luôn mở khi Order trống, cho đủ đồ khối chứa mới lên tầng, shift-click, tab Crafter
 
 ### 1. Kẹt đặt hopper hướng vào rương (log 3.0.123)

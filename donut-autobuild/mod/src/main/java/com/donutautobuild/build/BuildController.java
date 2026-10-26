@@ -2332,35 +2332,67 @@ public final class BuildController {
     * đặt), lùi ra thì mắt lại ở phía đông mặt tây (không nhìn thấy). Người dùng chọn: kê 1 khối tạm lên nóc rương (giữ shift để
     * không mở rương), đứng lên đó (chân cao hơn ô cần đặt), chìa mép đặt, xong đập khối tạm.
     */
+   private final Map<BlockPos, Integer> liftSaidAt = new HashMap<>();
+
+   /** 3.0.125: ghi lý do không kê khối tạm (mỗi ô tối đa 1 lần/30 giây) để đọc log khi đặt hopper/khối từ nóc rương kẹt */
+   private boolean liftNo(SchematicPlan.Target var1, String var2) {
+      if (this.mc.player != null && this.ticks - this.liftSaidAt.getOrDefault(var1.pos(), -100000) > 600) {
+         this.liftSaidAt.put(var1.pos().toImmutable(), this.ticks);
+         AutoBuildMod.LOGGER
+            .info(
+               "[AutoBuild] [KÊ TẠM] {} @ {}: không kê khối tạm — {} (chân Y={}, đứng trên {})",
+               new Object[]{
+                  var1.state().getBlock().getName().getString(),
+                  var1.pos().toShortString(),
+                  var2,
+                  String.format("%.3f", this.mc.player.getY()),
+                  this.mc.world.getBlockState(BlockPos.ofFloored(this.mc.player.getX(), this.mc.player.getY() - 0.01, this.mc.player.getZ())).getBlock().getName().getString()
+               }
+            );
+      }
+
+      return false;
+   }
+
    private boolean liftOverLowFloor(SchematicPlan.Target var1) {
-      if (this.temporary != null || this.pillar || this.supportTarget != null || this.mc.player == null || !this.mc.player.isOnGround() || this.plan == null) {
+      if (this.mc.player == null || this.plan == null) {
          return false;
+      } else if (this.temporary != null || this.pillar || this.supportTarget != null) {
+         return false;
+      } else if (!this.mc.player.isOnGround()) {
+         return this.liftNo(var1, "chưa đứng trên đất");
       } else {
          double var2 = this.mc.player.getY();
          double var4 = var2 - Math.floor(var2);
          if (var4 < 0.01 || var4 > 0.99) {
             return false;
          } else if ((double)(var1.pos().getY() + 1) <= var2 + 0.001) {
-            return false;
+            return this.liftNo(var1, "ô cần đặt không cao hơn chân");
          } else if (this.liftTried.contains(var1.pos())) {
-            return false;
+            return this.liftNo(var1, "đã thử kê tạm cho ô này ở tầng này");
          } else {
             BlockPos var6 = BlockPos.ofFloored(this.mc.player.getX(), var2 - 0.01, this.mc.player.getZ());
             BlockPos var7 = var6.up();
-            if (var7.equals(var1.pos()) || this.plan.at(var7) != null) {
-               return false;
+            if (var7.equals(var1.pos())) {
+               return this.liftNo(var1, "ô kê trùng ô cần đặt");
+            } else if (this.plan.at(var7) != null && !this.plan.at(var7).state().isAir()) {
+               return this.liftNo(var1, "ô trên khối thấp " + var7.toShortString() + " có khối trong bản vẽ");
             } else if (!this.mc.world.getBlockState(var7).getCollisionShape(this.mc.world, var7).isEmpty()
                && !this.mc.world.getBlockState(var7).isReplaceable()) {
-               return false;
+               return this.liftNo(var1, "ô trên khối thấp bị chiếm");
             } else if (!this.terrain_clear(var7.up())) {
-               return false;
+               return this.liftNo(var1, "không đủ chỗ đầu để nhảy kê");
             } else {
                Item var8 = this.scaffoldItem();
-               if (var8 != Items.AIR && var8 instanceof net.minecraft.item.BlockItem var9 && InventoryAccess.count(this.mc, var8) > 0 && this.scaffoldAllowed()) {
+               if (var8 == Items.AIR || !(var8 instanceof net.minecraft.item.BlockItem var9) || InventoryAccess.count(this.mc, var8) <= 0) {
+                  return this.liftNo(var1, "không có khối kê trong túi");
+               } else if (!this.scaffoldAllowed()) {
+                  return this.liftNo(var1, "đang tắt kê tự động");
+               } else {
                   this.liftTried.add(var1.pos().toImmutable());
                   AutoBuildMod.LOGGER
                      .info(
-                        "[AutoBuild] {} @ {}: đứng trên {} (thấp hơn 1 ô) chìa mép thì thân lấn vào ô cần đặt → kê 1 khối tạm lên nóc {} @ {}, đứng lên đó rồi chìa mép đặt",
+                        "[AutoBuild] {} @ {}: đứng trên {} (thấp hơn 1 ô) chìa mép thì thân lấn vào ô cần đặt → nhảy kê 1 khối tạm lên nóc {} ({}), đứng lên đó rồi chìa mép đặt",
                         new Object[]{
                            var1.state().getBlock().getName().getString(),
                            var1.pos().toShortString(),
@@ -2377,8 +2409,6 @@ public final class BuildController {
                   this.setStage(BuildController.Stage.EQUIP);
                   this.equip();
                   return true;
-               } else {
-                  return false;
                }
             }
          }
@@ -3131,6 +3161,11 @@ public final class BuildController {
    private boolean restoreStep() {
       if (!this.restore.isEmpty() && this.plan != null && !this.cleanupMode) {
          for (BlockPos var2 : new ArrayList<>(this.restore)) {
+            if (this.fillHolds(var2)) {
+               // khối che vừa đập để mở khối chứa: cho đồ xong mới đặt lại
+               continue;
+            }
+
             SchematicPlan.Target var3 = this.plan.at(var2);
             if (var3 != null && this.mc.world.isChunkLoaded(var2)) {
                if (!this.mc.world.getBlockState(var2).isReplaceable()) {
@@ -3598,9 +3633,51 @@ public final class BuildController {
    private int fillScanAt = -1000;
    private Object fillPlanFor;
 
+   private String fillKey(BlockPos var1) {
+      return this.plan.placement.getName() + "@" + this.plan.placement.getOrigin().toShortString() + "|" + var1.toShortString();
+   }
+
+   /** bản vẽ mới/nạp lại → xoá trạng thái, lấy lại danh sách khối chứa đã cho đủ đồ từ cấu hình (3.0.125: nhớ qua các lần vào game) */
+   private void fillReset() {
+      this.fillPlanFor = this.plan;
+      this.fillQueue.clear();
+      this.fillDone.clear();
+      this.fillRetryAt.clear();
+      this.fillNamedOnly.clear();
+      this.fillGateTries.clear();
+      this.fillUncover.clear();
+      this.fillUncoverTries.clear();
+      this.fillCollectLeft.clear();
+      if (this.plan != null) {
+         for (BlockPos var2 : this.plan.containerItems.keySet()) {
+            if (this.config.filledContainers.contains(this.fillKey(var2))) {
+               this.fillDone.add(var2.toImmutable());
+            }
+         }
+
+         if (!this.fillDone.isEmpty()) {
+            AutoBuildMod.LOGGER.info("[AutoBuild] Khối chứa: {} khối đã cho đủ đồ từ lần trước (không mở lại)", this.fillDone.size());
+         }
+      }
+   }
+
+   private void fillRemember(BlockPos var1, boolean var2) {
+      if (this.plan != null && var1 != null) {
+         boolean var3 = var2 ? this.config.filledContainers.add(this.fillKey(var1)) : this.config.filledContainers.remove(this.fillKey(var1));
+         if (var3) {
+            this.config.saveQuietly();
+         }
+      }
+   }
+
    /** vừa đặt xong khối chứa có đồ trong bản vẽ → cho đồ vào ngay */
    private void noteContainerPlaced(BlockPos var1) {
       if (this.plan != null && this.plan.containerItems.containsKey(var1)) {
+         if (this.fillPlanFor != this.plan) {
+            this.fillReset();
+         }
+
+         this.fillRemember(var1, false);
          this.fillDone.remove(var1);
          this.fillQueue.putIfAbsent(var1.toImmutable(), 0);
       }
@@ -3635,10 +3712,7 @@ public final class BuildController {
          return false;
       } else {
          if (this.fillPlanFor != this.plan) {
-            this.fillPlanFor = this.plan;
-            this.fillQueue.clear();
-            this.fillDone.clear();
-            this.fillRetryAt.clear();
+            this.fillReset();
          }
 
          if (this.ticks - this.fillScanAt >= 100 && !this.plan.containerItems.isEmpty()) {
@@ -3701,6 +3775,11 @@ public final class BuildController {
    private final Set<BlockPos> fillNamedOnly = new HashSet<>();
    private int fillGateSaidAt = -1000;
    private final Map<BlockPos, Integer> fillGateTries = new HashMap<>();
+   private final Map<Item, Integer> fillCollectLeft = new HashMap<>();
+   // 3.0.125: khối che đã đập để mở khối chứa bị bao kín → khối chứa đó; chưa cho đồ xong thì chưa đặt lại khối che
+   private final Map<BlockPos, BlockPos> fillUncover = new HashMap<>();
+   private final Map<BlockPos, Integer> fillUncoverAt = new HashMap<>();
+   private final Map<BlockPos, Integer> fillUncoverTries = new HashMap<>();
 
    /** khối chứa ở tầng thấp hơn tầng sắp xây mà chưa đủ đồ → đi tới cho đồ (true = đã lo việc đó tick này) */
    private boolean fillGate(Integer var1) {
@@ -3708,12 +3787,7 @@ public final class BuildController {
          return false;
       } else {
          if (this.fillPlanFor != this.plan) {
-            this.fillPlanFor = this.plan;
-            this.fillQueue.clear();
-            this.fillDone.clear();
-            this.fillRetryAt.clear();
-            this.fillNamedOnly.clear();
-            this.fillGateTries.clear();
+            this.fillReset();
          }
 
          BlockPos var2 = null;
@@ -3762,10 +3836,16 @@ public final class BuildController {
                return true;
             } else {
                int var12 = this.fillGateTries.merge(var2.toImmutable(), 1, Integer::sum);
-               if (var12 > 6) {
-                  // đi tới 6 lần vẫn không mở được (không tìm được đường/chỗ đứng) → báo và cho lên tầng, không kẹt mãi
+               // 3.0.125 (người dùng): khối chứa bị bao kín (không mặt nào hở) hoặc đi tới 3 lần vẫn không mở được → đập 1 khối che
+               // (ưu tiên khối thường), cho đồ vào rồi đặt lại khối che
+               if ((!this.exposed(var2) || var12 > 3) && this.fillUncoverStart(var2)) {
+                  return true;
+               }
+
+               if (var12 > 8) {
+                  // không tới được, cũng không gỡ được khối che → báo và cho lên tầng, không kẹt mãi
                   this.fillNamedOnly.add(var2.toImmutable());
-                  this.say("Không tới được khối chứa @ " + var2.toShortString() + " để cho đồ → bỏ qua, xây tiếp.");
+                  this.say("Không tới được khối chứa @ " + var2.toShortString() + " để cho đồ (đã thử gỡ khối che) → bỏ qua, xây tiếp.");
                   return false;
                }
 
@@ -3781,6 +3861,111 @@ public final class BuildController {
                this.repairGoal = var2.toImmutable();
                this.beginGoals(false);
                return true;
+            }
+         }
+      }
+   }
+
+   /** khối che đã đập cho khối chứa chưa cho đồ xong → chưa đặt lại (tối đa 3 phút) */
+   private boolean fillHolds(BlockPos var1) {
+      BlockPos var2 = this.fillUncover.get(var1);
+      if (var2 == null) {
+         return false;
+      } else if (this.fillDone.contains(var2) || this.fillNamedOnly.contains(var2) || this.ticks - this.fillUncoverAt.getOrDefault(var1, 0) > 3600) {
+         this.fillUncover.remove(var1);
+         this.fillUncoverAt.remove(var1);
+         return false;
+      } else {
+         return true;
+      }
+   }
+
+   private static boolean redstoneish(BlockState var0) {
+      String var1 = Registries.BLOCK.getId(var0.getBlock()).getPath();
+      return var0.hasBlockEntity()
+         || var0.emitsRedstonePower()
+         || var1.contains("redstone")
+         || var1.contains("repeater")
+         || var1.contains("comparator")
+         || var1.contains("observer")
+         || var1.contains("piston")
+         || var1.contains("rail")
+         || var1.contains("lever")
+         || var1.contains("button")
+         || var1.contains("pressure_plate")
+         || var1.contains("torch")
+         || var1.contains("tripwire")
+         || var1.contains("note_block")
+         || var1.contains("target")
+         || var1.contains("sculk")
+         || var1.contains("slime")
+         || var1.contains("honey");
+   }
+
+   /** chọn 1 khối che quanh khối chứa var1 để đập: khối thường trước, khối redstone/khối chứa sau cùng; đồ trong bản vẽ thì không đập */
+   private boolean fillUncoverStart(BlockPos var1) {
+      if (!this.config.fixWrong || this.repairing || this.sweeping || this.mc.world == null) {
+         return false;
+      } else {
+         for (Entry<BlockPos, BlockPos> var3 : this.fillUncover.entrySet()) {
+            if (var3.getValue().equals(var1) && !this.mc.world.getBlockState(var3.getKey()).isReplaceable()) {
+               // đang gỡ dở khối che cho khối chứa này
+               return this.tryRepairNow() || this.walkToRepair();
+            }
+         }
+
+         if (this.fillUncoverTries.getOrDefault(var1, 0) >= 3) {
+            return false;
+         } else {
+            BlockPos var4 = null;
+            double var5 = Double.MAX_VALUE;
+            BlockState var7 = null;
+
+            for (Direction var11 : Direction.values()) {
+               BlockPos var12 = var1.offset(var11);
+               BlockState var13 = this.mc.world.getBlockState(var12);
+               if (!var13.isReplaceable()
+                  && this.breakableWrong(var13, var12)
+                  && this.tntBreakRisk(var12) == null
+                  && !this.plan.containerItems.containsKey(var12)
+                  && !this.fillUncover.containsKey(var12)) {
+                  // khối chứa khác có đồ trong bản vẽ thì không đập (đồ bên trong rơi ra)
+                  double var14 = (redstoneish(var13) ? 100.0 : 0.0)
+                     + (var11 == Direction.UP ? 0.0 : (var11 == Direction.DOWN ? 6.0 : 2.0))
+                     + (this.exposed(var12) ? 0.0 : 20.0)
+                     + Math.sqrt(this.mc.player.squaredDistanceTo(Vec3d.ofCenter(var12))) * 0.1;
+                  if (var14 < var5) {
+                     var5 = var14;
+                     var4 = var12;
+                     var7 = var13;
+                  }
+               }
+            }
+
+            if (var4 == null) {
+               return false;
+            } else {
+               this.fillUncoverTries.merge(var1.toImmutable(), 1, Integer::sum);
+               this.fillGateTries.remove(var1);
+               BlockPos var15 = var4.toImmutable();
+               this.fillUncover.put(var15, var1.toImmutable());
+               this.fillUncoverAt.put(var15, this.ticks);
+               this.placedDone.remove(var15);
+               this.repairWrong.put(var15, var7);
+               this.coverFor.put(var15, var1.toImmutable());
+               AutoBuildMod.LOGGER
+                  .info(
+                     "[AutoBuild] Khối chứa @ {} bị che kín → đập {} @ {} để mở, cho đồ xong mới đặt lại",
+                     new Object[]{var1.toShortString(), var7.getBlock().getName().getString(), var15.toShortString()}
+                  );
+               if (!this.tryRepairNow() && !this.walkToRepair()) {
+                  this.repairWrong.remove(var15);
+                  this.coverFor.remove(var15);
+                  this.fillUncover.remove(var15);
+                  return false;
+               } else {
+                  return true;
+               }
             }
          }
       }
@@ -3816,6 +4001,8 @@ public final class BuildController {
       if (this.fillPos != null) {
          if (var1) {
             this.fillNamedOnly.remove(this.fillPos);
+            this.fillRemember(this.fillPos, true);
+            this.fillRemember(this.fillPartner, true);
             this.fillDone.add(this.fillPos);
             this.fillQueue.remove(this.fillPos);
             this.fillRetryAt.remove(this.fillPos);
@@ -3955,9 +4142,13 @@ public final class BuildController {
          var3.append(var5.count()).append(" ").append(var5.key().label());
       }
 
-      if (var2 != null && this.ticks - this.fillCollectAt.getOrDefault(var2.key().item(), -100000) > 1200) {
+      // 3.0.125: lần lấy trước có thêm được đồ (còn thiếu ít hơn) → lấy tiếp ngay, không chờ 60 giây (log: thiếu 92 Bone Meal chờ mãi)
+      if (var2 != null
+         && (this.ticks - this.fillCollectAt.getOrDefault(var2.key().item(), -100000) > 1200
+            || var2.count() < this.fillCollectLeft.getOrDefault(var2.key().item(), Integer.MAX_VALUE))) {
          Item var7 = var2.key().item();
          this.fillCollectAt.put(var7, this.ticks);
+         this.fillCollectLeft.put(var7, var2.count());
          this.fillDoneWith(false, 100, "thiếu " + var3 + " → lấy " + var7.getName().getString() + " như vật liệu rồi quay lại");
          this.say("Thiếu " + var2.count() + " " + var7.getName().getString() + " để cho vào khối chứa → lấy thêm (ender chest / Order / Shop).");
          this.collect(var7, BuildController.Stage.SELECT, var2.count());
@@ -4593,6 +4784,8 @@ public final class BuildController {
          this.stashBefore = this.stashHave();
          this.stashStep = ST_FIND;
          this.stashTicks = 0;
+         this.stashBadSpots.clear();
+         this.stashSpotRetries = 0;
          this.stashStepTicks = 0;
          this.stashPos = null;
          this.stashPlaced = false;
@@ -4625,9 +4818,14 @@ public final class BuildController {
     * công trình CHƯA xây (đập đi ngay sau vài giây). Chỉ tránh những gì thật sự bị kích hoạt khi đặt/đập: observer đang nhìn
     * vào ô đó, và piston/dispenser/dropper/crafter nằm sát ô đó (bị cập nhật khối).
     */
+   private final Set<BlockPos> stashBadSpots = new HashSet<>();
+   private int stashSpotRetries;
+
    private BlockPos stashSpot() {
       BlockPos var1 = BlockPos.ofFloored(this.mc.player.getX(), this.mc.player.getY() + 0.1, this.mc.player.getZ());
-      Vec3d var2 = this.mc.player.getEyePos();
+      // 3.0.125: đặt ender chest lúc NGỒI → kiểm tra tia từ mắt lúc ngồi (thấp hơn ~0,35). Bản cũ kiểm tra từ mắt lúc đứng → ngồi xuống
+      // thì tia trúng cạnh khối khác, "không ngắm được mặt trên khối" (log 20:46:35)
+      Vec3d var2 = PlacementSolver.poseEye(PlacementSolver.standingEye(this.mc, this.mc.player.getEyePos()), true);
       Box var3 = this.mc.player.getBoundingBox().contract(-0.05);
       double var4 = (this.reach() - 0.3) * (this.reach() - 0.3);
       BlockPos var6 = null;
@@ -4647,6 +4845,7 @@ public final class BuildController {
                   && !var3.intersects(new Box(var12))
                   && !(var2.squaredDistanceTo(Vec3d.ofCenter(var12)) > var4)
                   && !this.stashTriggers(var12)
+                  && !this.stashBadSpots.contains(var12)
                   && this.rayHits(var2, new Vec3d((double)var12.getX() + 0.5, (double)var12.getY() - 0.01, (double)var12.getZ() + 0.5), var12.down())) {
                   SchematicPlan.Target var13 = this.plan == null ? null : this.plan.at(var12);
                   // gần nhất trước (ô sát bên thì đập xong tự nhặt lại được); ưu tiên ngang chân, ô ngoài công trình
@@ -4817,6 +5016,14 @@ public final class BuildController {
                         this.mc.player.swingHand(Hand.MAIN_HAND);
                      });
                      this.stashNext(ST_WAIT_PLACED);
+                  } else if (this.stashStepTicks > 80 && this.stashSpotRetries < 3) {
+                     // 3.0.125: thử ngay ô khác quanh chỗ đứng, không bỏ qua 30 giây
+                     this.stashSpotRetries++;
+                     this.stashBadSpots.add(this.stashPos.toImmutable());
+                     AutoBuildMod.LOGGER.info("[AutoBuild] Ender chest: không ngắm được mặt trên khối dưới {} (tâm ngắm {}) → thử ô khác", this.stashPos.toShortString(),
+                        var5.getType() == Type.BLOCK ? var5.getBlockPos().toShortString() + " " + var5.getSide() : "không trúng khối");
+                     this.stashPos = null;
+                     this.stashNext(ST_FIND);
                   } else if (this.stashStepTicks > 80) {
                      this.stashFail("không ngắm được mặt trên khối để đặt ender chest", 600);
                   }
@@ -5392,6 +5599,16 @@ public final class BuildController {
                this.say("Không dịch chuyển về home được (server lag) → thoát ra vào lại.");
                Reconnector.request(this.mc, this, "/home " + this.config.ownHomeNumber + " không dịch chuyển (server lag)");
                return;
+            } else if (this.homes.homeMissing()) {
+               // 3.0.125 (người dùng): home của mod không còn → quên home cũ, tự tìm đường lên; tới chỗ an toàn ở tầng đang xây
+               // thì /sethome lại đúng số home đã chọn (maybeSetHome)
+               int var2 = this.config.ownHomeNumber;
+               this.config.ownHomeNumber = 0;
+               this.config.ownHomeManual = false;
+               this.config.ownHomeLayer = Integer.MIN_VALUE;
+               this.config.saveQuietly();
+               this.homeFailUntil = 0;
+               this.say("Home " + var2 + " không còn trên server → tự tìm đường lên, tới tầng đang xây sẽ /sethome " + Math.max(var2, this.config.modHomeNumber) + " lại.");
             } else {
                this.homeTpFailUntil = this.ticks + 1200;
                AutoBuildMod.LOGGER.info("[AutoBuild] Không /home được ({}) → 1 phút tới tự tìm đường lên như cũ", this.homes.status());
@@ -11904,6 +12121,7 @@ this.failures.remove(var1.pos());
             if (var4.getY() < this.currentLayer
                && this.config.inYRange(var4.getY())
                && !Materials.flowing(var3.state())
+               && !this.fillHolds(var4)
                && !this.skipped.contains(var4)
                && this.trusted(var4)
                && this.mc.world.isChunkLoaded(var4)) {
@@ -15457,6 +15675,28 @@ this.failures.remove(var1.pos());
       }
    }
 
+   /** đứng vững, không mở màn hình nào → mua xô ngay tại chỗ */
+   private boolean readyToBuyHere() {
+      if (this.mc.currentScreen != null) {
+         return false;
+      } else if (!this.mc.player.isOnGround() && !this.inWaterNow()) {
+         this.status = "Chờ đứng vững trước khi mua xô";
+         this.setStage(BuildController.Stage.EQUIP);
+         return false;
+      } else if (this.mc.player.getVelocity().horizontalLengthSquared() > (this.inWaterNow() ? 1.2E-3 : 4.0E-4)) {
+         this.brake();
+         this.status = "Dừng lại để mua xô";
+         this.setStage(BuildController.Stage.EQUIP);
+         return false;
+      } else {
+         this.bucketStandPos = null;
+         this.bucketBuyPos = null;
+         this.bucketAimTicks = 0;
+         this.bucketWalkFor = null;
+         return true;
+      }
+   }
+
    private boolean prepareBucketPurchase(SchematicPlan.Target var1) {
       if (this.mc.currentScreen != null) {
          return false;
@@ -15640,7 +15880,10 @@ this.failures.remove(var1.pos());
                this.beginScan();
             } else if (InventoryAccess.count(this.mc, var1) > 0) {
                this.setStage(BuildController.Stage.EQUIP);
-            } else if (this.prepareBucketPurchase(var3)) {
+            } else if (this.readyToBuyHere()) {
+               // 3.0.125 (người dùng: "cứ chờ đổi water bucket nhưng trong người không có → chờ mãi"): trong túi chưa có xô thì
+               // đứng yên mua ngay tại chỗ, có xô rồi mới đi tới ngắm đổ. Bản cũ đòi ngắm trúng mặt đổ trước khi mua → tâm ngắm trúng
+               // khối bên cạnh, "đi lại gần hơn" về đúng chỗ cũ, lặp mãi (log 20:48:02–20:48:35, Smooth Stone Slab Y=-53).
                this.missing.remove(var1);
                this.deferred.remove(var3.pos());
                if (InventoryAccess.freeSlots(this.mc) < 1) {
@@ -15656,7 +15899,7 @@ this.failures.remove(var1.pos());
                   int var5 = this.bucketBuyCount(var1);
                   AutoBuildMod.LOGGER
                      .info(
-                        "[AutoBuild] Đã tới chỗ và ngắm đúng ô {} → mua {} {} trong 1 lần mở shop rồi đặt ngay",
+                        "[AutoBuild] Cần đổ ô {} mà trong túi chưa có xô → mua {} {} ngay tại chỗ (1 lần mở shop), có xô rồi mới đi tới đổ",
                         new Object[]{var3.pos().toShortString(), var5, var1.getName().getString()}
                      );
                   this.bucketDrifted = false;
@@ -18532,6 +18775,12 @@ this.failures.remove(var1.pos());
                      var6 = BuildController.this.mc.world.getBlockState(var3.pos());
                      var3.pos();
                      if (StateMatch.chestAwaitingPartner(var6, var3.state())) {
+                        this.matched++;
+                        continue;
+                     }
+
+                     if (BuildController.this.fillHolds(var3.pos())) {
+                        // 3.0.125: khối che đã đập để mở khối chứa → cho đồ xong mới đặt lại
                         this.matched++;
                         continue;
                      }

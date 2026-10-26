@@ -900,9 +900,11 @@ public final class ShopBrowser {
          this.end(var1, var3.getName().getString() + " giá $" + money(var4) + " > trần $" + money(this.maxPrice) + " → không mua");
       } else if (InventoryAccess.freeSlots(var1) <= this.config.reserveFreeSlots) {
          this.end(var1, "túi đồ đầy");
-      } else if (++this.buyClicks > 6) {
+      } else if (++this.buyClicks > 64) {
          // mỗi lần bấm chỉ bấm tiếp sau khi hàng lần trước đã về túi; đủ số cần thì dừng ngay ở đầu tick
-         this.end(var1, "đã bấm mua 6 lần");
+         // 3.0.125 (người dùng: "mua tới khi đủ"): bỏ giới hạn 6 lần (log: cần 476 Bone Meal, mua 384 rồi dừng). Chỉ dừng khi đủ,
+         // túi đầy, giá > trần, hoặc bấm mua mà không nhận được hàng (hết tiền); 64 lần là chốt an toàn
+         this.end(var1, "đã bấm mua 64 lần");
       } else {
          this.clickHave = this.have(var1);
          this.status = "Mua " + var3.getName().getString() + (var3.getCount() > 1 ? " x" + var3.getCount() : "") + " giá $" + money(var4);

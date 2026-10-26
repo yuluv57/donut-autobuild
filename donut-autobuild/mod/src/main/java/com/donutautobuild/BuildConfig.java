@@ -101,6 +101,8 @@ public final class BuildConfig {
    public int moneyBuys;
    public long moneySince;
    public java.util.Map<String, Integer> crafterLayerMasks = new java.util.HashMap<>();
+   /** 3.0.125: khối chứa đã cho đủ đồ theo bản vẽ (placement@gốc|x, y, z) → vào lại game không mở kiểm tra lại */
+   public java.util.Set<String> filledContainers = new java.util.HashSet<>();
    public int configVersion;
    private static final int CURRENT_VERSION = 11;
    public int maxScaffoldBlocks = 2048;
@@ -190,6 +192,10 @@ public final class BuildConfig {
    public void clamp() {
       if (this.crafterLayerMasks == null) {
          this.crafterLayerMasks = new java.util.HashMap<>();
+      }
+
+      if (this.filledContainers == null) {
+         this.filledContainers = new java.util.HashSet<>();
       }
 
       this.reach = finite(this.reach, 4.25, 2.0, 4.5);
