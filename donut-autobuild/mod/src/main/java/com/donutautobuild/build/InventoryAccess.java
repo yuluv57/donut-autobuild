@@ -423,6 +423,7 @@ public final class InventoryAccess {
    private static long forcedAt = -100000L;
    private static int forcedCount;
    private static boolean menuSeen;
+   private static boolean menuCrafterOnly;
    private static long resyncSentAt;
    private static long resyncSentAtLog;
    private static int resyncRev;
@@ -479,10 +480,19 @@ public final class InventoryAccess {
          long var2 = System.currentTimeMillis();
          pollResync(var0);
          if (var0.player.currentScreenHandler != var0.player.playerScreenHandler) {
+            if (!menuSeen) {
+               menuCrafterOnly = true;
+            }
+
+            menuCrafterOnly &= var0.player.currentScreenHandler instanceof net.minecraft.screen.CrafterScreenHandler;
             menuSeen = true;
             if (resyncSentAt > 0L) {
                menuSinceSend = true;
             }
+         } else if (menuSeen && menuCrafterOnly) {
+            // 3.0.127: menu crafter chỉ bật/tắt ô (không có món nào đi vào/ra túi) → không cần xin server gửi lại túi đồ
+            // (bản cũ chờ ~0,4 giây sau MỖI crafter: "kiểm tra lại túi đồ trước khi đặt tiếp (vừa đóng menu)")
+            menuSeen = false;
          } else if (menuSeen) {
             // vừa đóng menu server (shop, sell, order, ender chest…): chờ 1 lượt ping cho các gói ô đồ còn trên đường (vd. món vừa mua)
             // về hết rồi mới đổi đồ — nếu không, gói về muộn ghi đè lần đổi đồ vừa dự đoán → lệch đồ trên tay

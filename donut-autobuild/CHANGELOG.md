@@ -8,6 +8,59 @@ Các bản không có mục riêng: 2.0.0–2.9.9 (16–18/09), 3.0.0–3.0.16 (
 
 ---
 
+## 3.0.127 — 26/10/2026 · bấm Confirm khi mua, crafter nhanh hơn, chạy cả đêm, đập khối kê ngay, dùng góc gửi riêng nhiều hơn
+
+### 1. Mua ở /shop mà không bấm Confirm
+- **Triệu chứng (log 3.0.126, 01:30:15):** bấm mua Crafter thì hiện menu "Confirm Quick Buy". Mod không bấm gì, 5 giây sau báo "không nhận được hàng (hết tiền?)". Lặp 7 lần.
+- **Nguyên nhân:** tên menu có chữ "Quick Buy", nên mod tưởng đó là trang Quick Buy chính.
+- **Sửa:** menu nào có chữ "Confirm" / "xác nhận" thì mod luôn bấm nút Confirm (tên Confirm/Accept/Yes, hoặc kính/len xanh lá; không bao giờ bấm Cancel). Bấm xong chờ hàng về rồi mua tiếp tới khi đủ. Mỗi lần mua mới thì đếm lại số lần bấm Confirm từ đầu.
+
+### 2. Mở crafter rồi đứng im 12 giây; ender chest và khối chứa cũng không mở được
+- **Triệu chứng:**
+  - 6 lần "Crafter …: 12 giây chưa chỉnh xong".
+  - "không mở được ender chest" (01:33:27).
+- **Nguyên nhân:** đầu mỗi tick, mod tự giữ phím ngồi khi đang chìa người ra mép. Bước mở crafter / ender chest / khối chứa có ra lệnh "đứng thẳng", nhưng lệnh này bị đè. Nhân vật vẫn ngồi, nên mod không bao giờ bấm mở.
+- **Sửa:**
+  - Đứng yên trên đất thì đứng thẳng hẳn để bấm mở. Không bấm phím đi nên không trượt khỏi mép.
+  - Xong việc thì ngồi lại nếu đang chìa ra mép.
+  - Thêm dòng log lý do khi 2 giây chưa bấm mở được.
+
+### 3. Crafter nhanh hơn
+- Crafter đặt trên đường đi ("Xây gần trước") được chỉnh ngay, không đi tiếp hay đặt crafter khác rồi mới quay lại.
+- Menu vừa lên là bấm ngay, mỗi tick 1 ô (bản cũ 2 tick/ô). Gửi hết rồi kiểm tra 1 lần sau 1 lượt ping; ô nào sai thì bấm lại đúng ô đó ngay.
+- Đóng crafter không còn xin server gửi lại túi đồ, vì crafter không đổi đồ trong túi. Bản cũ chờ thêm ~0,4 giây sau mỗi crafter.
+- Ngắm không trúng thì 1,5 giây (bản cũ 3 giây) bỏ để đổi chỗ đứng. Crafter chưa chỉnh được thì 5 giây sau làm lại (bản cũ 20 giây).
+
+### 4. Ender chest đập không được thì lặp mãi tại chỗ
+- **Triệu chứng:** 01:33:39–01:34:23, 4 lần × 12 giây liền "chưa đập được".
+- **Sửa:**
+  - Bước ender chest / khối chứa / crafter không còn tính là "bận menu" khi không có menu nào mở, kể cả lúc đang giữa việc mua đồ.
+  - Đập hỏng thì xây tiếp, 15 giây sau mới quay lại.
+  - Thêm log chi tiết lý do chưa vỡ.
+
+### 5. Chạy cả đêm, không dừng chờ nhấn K
+- Thiếu đồ khi đang tắt "lấy từ Order": báo chat, xây phần khác, 60 giây sau kiểm tra lại.
+- Túi đầy lúc cần lấy đồ hoặc mua xô: báo chat (5 phút/lần), xây phần khác hoặc chờ, rồi tự dọn túi và thử lại.
+- Chết thì hồi sinh, có home của mod thì /home về rồi xây tiếp (như trước). Chưa có home mà hồi sinh xa chỗ xây: báo chat, đứng chờ ở chỗ hồi sinh, về gần công trình là tự xây tiếp.
+- Mất kết nối thì tự vào lại; tiếp tế cúp và đồ ăn vẫn tự mua như trước. Chỉ K mới dừng hẳn.
+
+### 6. Khối kê tạm để lại
+- **Bắc cầu:** vừa bước hẳn sang khối mới là quay lại đập khối phía sau. Bản cũ đợi cách 1,5 ô nên để lại cả dãy.
+- **Khối kê đứng trong tầm mà người còn chạm nó:** nhích vào giữa ô rồi đập. Đổi chỗ đứng tối đa 4 lần (bản cũ 2 lần) mới để tới lúc thu dọn cuối.
+
+### 7. Góc gửi riêng (góc nhìn giả) dùng cho mọi khối có hướng
+- **Triệu chứng:** log 3.0.126 có 38 lần "trong tầm nhưng sai hướng", 0 lần dùng góc gửi riêng. Mod đi vòng / bắc cầu tìm chỗ đứng có góc thật.
+- **Nguyên nhân:** góc gửi riêng chỉ bật cho khối phải nhìn lên mới đặt được.
+- **Sửa:**
+  - Observer, piston, hopper… và mọi khối có hướng đều được dùng góc gửi riêng khi từ chỗ đứng không có góc thật. Góc thật vẫn ưu tiên trước.
+  - Tìm chỗ đứng và "Xây gần trước" cũng tính các chỗ đặt được bằng góc gửi riêng.
+  - Cài đặt `rotationSpoof` (OFF/AUTO/ON) vẫn như cũ.
+
+### 8. Log
+- "từng xong nhưng giờ chưa đúng/trống" chỉ ghi 5 dòng đầu mỗi 10 giây kèm số tổng. Log 3.0.126 có 2233 dòng liền.
+
+---
+
 ## 3.0.126 — 26/10/2026 · ender chest đặt xong đứng chờ, không đập thu về
 
 ### 1. Đặt ender chest xong đứng chờ rất lâu rồi bỏ lại, không đập

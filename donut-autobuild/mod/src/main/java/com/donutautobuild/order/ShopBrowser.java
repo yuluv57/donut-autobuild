@@ -818,12 +818,16 @@ public final class ShopBrowser {
       }
 
       String var2 = title(var1);
-      if (var2.contains("quick buy") || var2.contains("select item")) {
+      // 3.0.127 (log 01:30:15: bấm mua Crafter → menu "Confirm Quick Buy" hiện ra, mod tưởng là trang Quick Buy nên không bấm,
+      // 5 giây sau báo "không nhận được hàng (hết tiền?)"). Menu có chữ "confirm"/"xác nhận" luôn là menu xác nhận, kể cả khi
+      // tên có "Quick Buy"; trang Quick Buy/Select Item thường thì không bấm gì ở đây
+      boolean var5 = var2.contains("confirm") || var2.contains("xác nhận");
+      if (!var5 && (var2.contains("quick buy") || var2.contains("select item"))) {
          return false;
       }
 
       // chỉ sau khi đã bấm mua (WAIT_ITEM) hoặc menu ghi rõ là xác nhận
-      if (this.step != ShopBrowser.Step.WAIT_ITEM && !var2.contains("confirm") && !var2.contains("xác nhận")) {
+      if (this.step != ShopBrowser.Step.WAIT_ITEM && !var5) {
          return false;
       }
 
@@ -842,6 +846,7 @@ public final class ShopBrowser {
       }
 
       if (this.confirmClicks >= 3) {
+         // 3 lần bấm Confirm cho CÙNG một lần mua mà menu không đổi (số đếm về 0 mỗi khi nhận được hàng)
          this.end(var1, "menu xác nhận \"" + var2 + "\" bấm Confirm 3 lần chưa xong");
          return true;
       }
@@ -864,7 +869,9 @@ public final class ShopBrowser {
 
    private void waitItemTick(MinecraftClient var1, int var2) {
       if (var2 > this.clickHave) {
-         // đã nhận hàng của lần bấm này → về Quick Buy, còn thiếu thì bấm tiếp
+         // đã nhận hàng của lần bấm này → về Quick Buy, còn thiếu thì bấm tiếp (lần mua sau lại bấm Confirm từ đầu)
+         this.confirmClicks = 0;
+         this.confirmSig = "";
          this.step = ShopBrowser.Step.QUICK;
          this.clickSig = "";
          this.age = 0;

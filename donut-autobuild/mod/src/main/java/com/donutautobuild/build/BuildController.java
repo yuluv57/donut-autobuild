@@ -1163,7 +1163,32 @@ public final class BuildController {
       Input.key(this.mc.options.jumpKey, false);
       Input.sprint(this.mc, false, this.ticks);
       Input.key(this.mc.options.attackKey, false);
-      Input.sneak(this.mc, this.running && this.overhanging(), this.ticks);
+      Input.sneak(this.mc, this.running && (this.overhanging() || this.ticks < this.resneakUntil && this.overAir()), this.ticks);
+   }
+
+   // 3.0.127: release() chạy đầu MỌI tick và giữ phím ngồi khi đang chìa người ra mép (overhanging). Các bước mở crafter / khối chứa /
+   // ender chest gọi Input.sneak(false) nhưng chỉ "cộng thêm" vào yêu cầu ngồi của tick đó → vẫn ngồi, mà bấm mở thì cần đứng thẳng
+   // → đứng im tới hết 12 giây (log 3.0.126: "Crafter …: 12 giây chưa chỉnh xong", "không mở được ender chest").
+   // Giờ: đứng yên trên đất thì ĐỨNG THẲNG hẳn để bấm mở (không bấm phím đi nên không trượt khỏi mép; hộp va chạm vẫn chạm khối),
+   // xong việc thì release() ngồi lại 1 giây nếu tâm người còn ở ngoài khoảng trống.
+   private int resneakUntil = -1000;
+
+   private void standToUse() {
+      if (this.mc.player != null && this.mc.player.isOnGround() && this.mc.player.getVelocity().horizontalLengthSquared() < 0.0025) {
+         Input.forceSneak(this.mc, false, this.ticks);
+         this.resneakUntil = this.ticks + 20;
+      } else {
+         Input.sneak(this.mc, false, this.ticks);
+      }
+   }
+
+   private boolean overAir() {
+      if (this.mc.player != null && this.mc.world != null && this.mc.player.isOnGround()) {
+         BlockPos var1 = BlockPos.ofFloored(this.mc.player.getX(), this.mc.player.getY() - 0.2, this.mc.player.getZ());
+         return this.mc.world.getBlockState(var1).getCollisionShape(this.mc.world, var1).isEmpty();
+      } else {
+         return false;
+      }
    }
 
    private boolean overhanging() {
@@ -1271,6 +1296,10 @@ public final class BuildController {
          }
       } else {
          this.stageTicks++;
+         if (this.mc.player != null && this.mc.player.isAlive() && this.mc.player.isOnGround() && this.ticks % 20 == 0) {
+            this.lastRunPos = this.mc.player.getPos();
+         }
+
          this.ghostTick();
          if (this.mc.player != null) {
             boolean var90 = this.mc.player.isInSneakingPose();
@@ -2188,17 +2217,24 @@ public final class BuildController {
                      && this.freeSpace("Túi đồ đầy khi tầng Y=" + var7 + " còn thiếu " + this.missingLabel())) {
                      return;
                   } else if (var18 != null && this.config.collectFromOrders && InventoryAccess.freeSlots(this.mc) <= this.config.reserveFreeSlots) {
-                     this.pause(
-                        "Túi đồ đầy (chỉ còn "
-                           + InventoryAccess.freeSlots(this.mc)
-                           + " ô trống, cần hơn "
-                           + this.config.reserveFreeSlots
-                           + "). Tầng Y="
-                           + var7
-                           + " còn thiếu "
-                           + this.missingLabel()
-                           + " mà không lấy được từ Order. Dọn bớt đồ trong túi rồi nhấn K."
-                     );
+                     // 3.0.127 (người dùng: "chạy cả đêm không dừng vì bất cứ lý do gì"): không dừng chờ nhấn K nữa — báo chat
+                     // (5 phút/lần), chờ rồi tự thử dọn túi (ender chest / bán) và lấy đồ lại
+                     String var29 = "Túi đồ đầy (chỉ còn "
+                        + InventoryAccess.freeSlots(this.mc)
+                        + " ô trống, cần hơn "
+                        + this.config.reserveFreeSlots
+                        + "). Tầng Y="
+                        + var7
+                        + " còn thiếu "
+                        + this.missingLabel()
+                        + " → không dừng: lát nữa tự dọn túi rồi lấy lại (dọn giúp vài ô thì nhanh hơn).";
+                     this.status = var29;
+                     if (this.ticks - this.fullSaidAt > 6000) {
+                        this.fullSaidAt = this.ticks;
+                        this.say(var29);
+                     }
+
+                     this.setStage(BuildController.Stage.WAIT_MATERIAL);
                   } else if (var18 != null && this.config.collectFromOrders) {
                      this.target = var18;
                      Item var23 = this.materialFor(var18, this.stateAt(var18.pos()));
@@ -3434,6 +3470,27 @@ public final class BuildController {
       return var1.length() == 0 ? "không ô nào" : "ô " + var1;
    }
 
+   /** đang đi mà có crafter vừa đặt chưa chỉnh trong tầm → chỉnh ngay; ô đang đi tới được xếp lại đầu hàng để làm tiếp sau đó */
+   private boolean crafterNow() {
+      if (this.crafterQueue.isEmpty() || this.temporary != null || this.supportTarget != null || this.restoringPos != null || this.climbMove || this.pillar) {
+         return false;
+      }
+
+      SchematicPlan.Target var1 = this.target;
+      if (!this.crafterStep()) {
+         return false;
+      }
+
+      if (var1 != null && this.plan != null) {
+         SchematicPlan.Target var2 = this.plan.at(var1.pos());
+         if (var2 != null && !this.queue.contains(var2)) {
+            this.queue.addFirst(var2);
+         }
+      }
+
+      return true;
+   }
+
    /** crafter vừa đặt (trong tầm với, nhìn thấy) mà chưa chỉnh → mở ra tắt đúng các ô */
    private boolean crafterStep() {
       if (!this.crafterQueue.isEmpty() && this.config.configureCrafters && this.mc.player != null && this.mc.currentScreen == null) {
@@ -3491,7 +3548,8 @@ public final class BuildController {
          this.crafterQueue.computeIfPresent(this.crafterPos, (var0, var1x) -> var1x + 1);
          if (this.crafterPos != null) {
             // 3.0.98: không làm lại NGAY crafter vừa hỏng (bản cũ lặp 3 lần × 15 giây = 45 giây đứng im) → xây tiếp, 20 giây sau quay lại
-            this.crafterRetryAt.put(this.crafterPos.toImmutable(), this.ticks + 400);
+            // 3.0.127: 5 giây (bản cũ 20 giây) — đi chỗ khác mà nhìn thấy crafter là chỉnh luôn
+            this.crafterRetryAt.put(this.crafterPos.toImmutable(), this.ticks + 100);
          }
       }
 
@@ -3504,14 +3562,16 @@ public final class BuildController {
       if (this.crafterPos == null || this.mc.player == null) {
          this.setStage(BuildController.Stage.NEXT);
       } else if (++this.crafterTicks > 240) {
-         this.crafterDone(false, "12 giây chưa chỉnh xong → xây tiếp, 20 giây sau quay lại");
+         this.crafterDone(false, "12 giây chưa chỉnh xong → xây tiếp, 5 giây sau quay lại");
       } else if (this.mc.player.currentScreenHandler instanceof net.minecraft.screen.CrafterScreenHandler var1) {
          // 3.0.95: nhanh hơn (người dùng: đặt crafter xuống là chỉnh xong luôn). Mỗi 2 tick gửi 1 ô khác cấu hình, KHÔNG chờ
          // server trả lời từng ô (bản cũ chờ trả lời nên mỗi ô mất ~1/4 giây ping và gửi lặp lại cùng ô). Gửi hết rồi mới kiểm tra 1 lần.
+         // 3.0.127 (người dùng: "bấm liên tục, kiểm tra 1 lần cuối"): menu vừa lên là bấm luôn, mỗi tick 1 ô (bản cũ 2 tick/ô và chờ
+         // 2 tick trước ô đầu), gửi hết rồi chờ 1 lượt ping kiểm tra; ô nào sai thì bấm lại đúng ô đó ngay
          if (this.crafterStepNo == 0) {
             this.crafterStepNo = 1;
             this.crafterSent = 0;
-            this.crafterNextAt = this.crafterTicks + 2;
+            this.crafterNextAt = this.crafterTicks;
          }
 
          if (this.crafterTicks >= this.crafterNextAt) {
@@ -3531,8 +3591,8 @@ public final class BuildController {
 
                   this.mc.interactionManager.slotChangedState(var2, this.mc.player.currentScreenHandler.syncId, !var3);
                   this.crafterSent |= 1 << var2;
-                  this.crafterNextAt = this.crafterTicks + 2;
-                  this.crafterCheckAt = this.crafterTicks + 2 + this.latencyTicks();
+                  this.crafterNextAt = this.crafterTicks + 1;
+                  this.crafterCheckAt = this.crafterTicks + 1 + this.latencyTicks();
                   this.status = "Chỉnh crafter: " + (var3 ? "tắt" : "bật") + " ô " + (var2 + 1);
                   return;
                }
@@ -3551,10 +3611,10 @@ public final class BuildController {
 
                if (var5) {
                   this.crafterDone(true, "đã tắt " + maskLabel(this.crafterMask));
-               } else if (this.crafterTicks >= this.crafterCheckAt + 10) {
-                  // server chưa nhận vài ô → gửi lại các ô còn lệch
+               } else if (this.crafterTicks >= this.crafterCheckAt + 2) {
+                  // server chưa nhận vài ô → bấm lại ngay đúng các ô còn lệch
                   this.crafterSent = 0;
-                  this.crafterCheckAt = this.crafterTicks + 2 + this.latencyTicks();
+                  this.crafterCheckAt = this.crafterTicks + 1 + this.latencyTicks();
                }
             }
          }
@@ -3564,7 +3624,7 @@ public final class BuildController {
          }
       } else {
          // chưa mở: nhìn vào crafter, không ngồi, bấm chuột phải
-         Input.sneak(this.mc, false, this.ticks);
+         this.standToUse();
          Vec3d var5 = this.visiblePoint(this.crafterPos);
          if (var5 == null) {
             this.crafterDone(false, "không nhìn thấy crafter từ chỗ đứng → để sau");
@@ -3573,8 +3633,8 @@ public final class BuildController {
             this.lookAt(MotionMath.yaw(var6.x, var6.z), MotionMath.pitch(var6.x, var6.y, var6.z));
             BlockHitResult var7 = PlacementSolver.ray(this.mc, this.reach());
             boolean var8 = var7.getType() == Type.BLOCK && var7.getBlockPos().equals(this.crafterPos);
-            if (!var8 && this.rotationSent() && ++this.crafterNoHit > 60) {
-               this.crafterDone(false, "3 giây không ngắm trúng crafter → xây tiếp, lát quay lại");
+            if (!var8 && this.rotationSent() && ++this.crafterNoHit > 30) {
+               this.crafterDone(false, "1,5 giây không ngắm trúng crafter → xây tiếp, đổi chỗ đứng rồi chỉnh");
                return;
             }
 
@@ -3582,7 +3642,7 @@ public final class BuildController {
             // bấm 4 lần không lên menu → bỏ qua, xây tiếp, 20 giây sau quay lại chỉnh (không đứng chờ mãi)
             int var9 = 20 + this.latencyTicks();
             if (this.crafterClicks >= 4 && this.crafterTicks - this.crafterOpenAt > var9 + 10) {
-               this.crafterDone(false, "bấm mở " + this.crafterClicks + " lần không lên menu (server lag) → xây tiếp, 20 giây sau quay lại");
+               this.crafterDone(false, "bấm mở " + this.crafterClicks + " lần không lên menu (server lag) → xây tiếp, 5 giây sau quay lại");
                return;
             }
 
@@ -3607,6 +3667,11 @@ public final class BuildController {
                   this.mc.interactionManager.interactBlock(this.mc.player, Hand.MAIN_HAND, clickVar7);
                   this.mc.player.swingHand(Hand.MAIN_HAND);
                });
+            }
+
+            if (this.crafterClicks == 0 && this.crafterTicks == 40) {
+               AutoBuildMod.LOGGER.info("[AutoBuild] Crafter @ {}: 2 giây chưa bấm mở được — ngắm trúng={}, góc đã gửi={}, đang ngồi={}, trên đất={}",
+                  new Object[]{this.crafterPos.toShortString(), var8, this.rotationSent(), this.mc.player.isInSneakingPose(), this.mc.player.isOnGround()});
             }
 
             this.status = "Mở crafter @ " + this.crafterPos.toShortString() + " để tắt " + maskLabel(this.crafterMask) + (this.crafterClicks > 1 ? " (bấm lần " + this.crafterClicks + ")" : "");
@@ -4067,7 +4132,7 @@ public final class BuildController {
             }
          } else {
             // chưa mở: đứng thẳng, nhìn vào khối, bấm chuột phải
-            Input.sneak(this.mc, false, this.ticks);
+            this.standToUse();
             BlockState var4 = this.mc.world.getBlockState(this.fillPos);
             if (!ContainerFill.fillable(var4)) {
                this.fillDoneWith(false, 400, "khối không còn ở đó");
@@ -4510,8 +4575,10 @@ public final class BuildController {
    }
 
    /** ender chest còn nằm lại do bị dừng giữa chừng → quay lại đập thu về (khi đứng gần) */
+   private int stashLeftRetryAt = -1000;
+
    private boolean stashCleanupStep() {
-      if (this.stashLeft == null || this.mc.world == null || this.mc.player == null) {
+      if (this.stashLeft == null || this.mc.world == null || this.mc.player == null || this.ticks < this.stashLeftRetryAt) {
          return false;
       } else if (this.mc.world.getBlockState(this.stashLeft).getBlock().asItem() != enderChestItem()) {
          this.stashLeft = null;
@@ -5049,7 +5116,7 @@ public final class BuildController {
                break;
             case ST_OPEN: {
                // đứng thẳng (không ngồi) rồi bấm chuột phải vào ender chest để mở
-               Input.sneak(this.mc, false, this.ticks);
+               this.standToUse();
                if (!this.mc.player.isSneaking()) {
                   Vec3d var6 = this.visiblePoint(this.stashPos);
                   if (var6 == null) {
@@ -5179,8 +5246,10 @@ public final class BuildController {
                   Input.key(this.mc.options.attackKey, false);
                   this.mining = null;
                   this.forceTool = null;
-                  AutoBuildMod.LOGGER.info("[AutoBuild] Ender chest @ {}: 12 giây chưa đập được → để lại, lát đứng gần sẽ đập tiếp", this.stashPos.toShortString());
+                  AutoBuildMod.LOGGER.info("[AutoBuild] Ender chest @ {}: 12 giây chưa đập được → để lại, xây tiếp, 15 giây sau đứng gần sẽ đập tiếp", this.stashPos.toShortString());
                   this.stashLeft = this.stashPos;
+                  // 3.0.127: không quay lại đập ngay tức thì (log 3.0.126: lặp 4 lần × 12 giây đứng một chỗ)
+                  this.stashLeftRetryAt = this.ticks + 300;
                   this.stashFinish();
                } else {
                   Input.sneak(this.mc, false, this.ticks);
@@ -5193,6 +5262,18 @@ public final class BuildController {
                   this.forceTool = var16;
                   this.mining = this.stashPos;
                   this.breakBlock(var15);
+                  if (this.stashStepTicks == 60 || this.stashStepTicks == 200) {
+                     BlockHitResult var20 = PlacementSolver.ray(this.mc, this.reach());
+                     AutoBuildMod.LOGGER.info(
+                        "[AutoBuild] Ender chest @ {}: {} giây chưa vỡ — túi đồ đã kiểm chứng={}, cầm {}, tâm ngắm {}, góc đã gửi={}, giữ chuột được={}, chuột trái={}, nhìn thấy={}, đứng {}",
+                        new Object[]{
+                           this.stashPos.toShortString(), this.stashStepTicks / 20, InventoryAccess.synced(this.mc),
+                           this.mc.player.getMainHandStack().getName().getString(),
+                           var20.getType() == Type.BLOCK ? var20.getBlockPos().toShortString() : "-", this.rotationSent(), Input.canHoldAttack(this.mc),
+                           this.mc.options.attackKey.isPressed(), this.visiblePoint(this.stashPos) != null, this.mc.player.getBlockPos().toShortString()
+                        }
+                     );
+                  }
                }
                break;
             }
@@ -5308,7 +5389,14 @@ public final class BuildController {
          // 3.0.126: bước ender chest / khối chứa / crafter chỉ tính là "bận menu" khi đang mở menu thật. Bản 3.0.124 tính cả lúc
          // đã đóng menu → đổi cúp để đập ender chest xong không xin server xác nhận túi đồ được → đứng chờ 12 giây rồi bỏ đi,
          // ender chest nằm lại (log 3.0.125: 01:07:26, 01:18:18 lặp mãi "12 giây chưa đập được")
-         return this.menuStage() && this.mc.player != null && this.mc.player.currentScreenHandler != this.mc.player.playerScreenHandler
+         boolean var1 = this.mc.player != null && this.mc.player.currentScreenHandler != this.mc.player.playerScreenHandler;
+         if (!var1 && (this.stage == BuildController.Stage.STASH || this.stage == BuildController.Stage.FILL || this.stage == BuildController.Stage.CRAFTER)) {
+            // 3.0.127: đang ở bước ender chest / khối chứa / crafter mà không mở menu nào → không bận, kể cả khi việc mua đồ
+            // (shopping/browsing) gọi bước này giữa chừng (log 3.0.126 01:33:39–01:34:23: lặp "12 giây chưa đập được" ender chest)
+            return false;
+         }
+
+         return this.menuStage() && var1
             || this.shopping
             || this.browsing
             || this.orders.active()
@@ -6185,6 +6273,38 @@ public final class BuildController {
       }
    }
 
+   private BlockPos creepSweepFor;
+   private int creepSweepTicks;
+
+   /** đứng trong tầm khối kê nhưng thân người còn chạm nó → nhích (ngồi) vào giữa ô đang đứng; true = đang nhích */
+   private boolean creepToSweep(BlockPos var1) {
+      PathSearch.Cell var2 = Navigation.cell(this.mc.player.getBlockPos());
+      Box var3 = this.mc.player.getBoundingBox().expand(0.03, 0.0, 0.03).stretch(0.0, -1.2, 0.0);
+      if (!var3.intersects(new Box(var1))
+         || !this.safeMiningStand(var2, var1)
+         || this.mc.player.getEyePos().squaredDistanceTo(Vec3d.ofCenter(var1)) > this.reach() * this.reach()) {
+         return false;
+      }
+
+      if (!var1.equals(this.creepSweepFor)) {
+         this.creepSweepFor = var1.toImmutable();
+         this.creepSweepTicks = 0;
+      }
+
+      if (++this.creepSweepTicks > 40) {
+         return false;
+      }
+
+      Vec3d var4 = new Vec3d((double)var2.x() + 0.5, this.mc.player.getY(), (double)var2.z() + 0.5);
+      if (Math.hypot(var4.x - this.mc.player.getX(), var4.z - this.mc.player.getZ()) < 0.05) {
+         return false;
+      }
+
+      this.creepToward(var4);
+      this.status = "Nhích vào giữa ô để đập khối kê " + var1.toShortString();
+      return true;
+   }
+
    private boolean pendingSweep() {
       if (!this.sweepSkip.isEmpty() && this.ticks - this.sweepSkipAt > 600) {
          this.sweepSkipAt = this.ticks;
@@ -6212,11 +6332,17 @@ public final class BuildController {
                         continue;
                      }
 
-                     if (this.sweepWalks.merge(var2.toImmutable(), 1, Integer::sum) > 2) {
+                     // 3.0.127: đứng trong tầm mà người còn chạm khối kê (dừng lệch về phía nó) → nhích vào giữa ô đang đứng rồi đập,
+                     // không bỏ đi (log 3.0.126: rất nhiều "Đã 2 lần bước ra mà vẫn chưa đập được khối kê")
+                     if (this.mc.player.isOnGround() && this.creepToSweep(var2)) {
+                        return true;
+                     }
+
+                     if (this.sweepWalks.merge(var2.toImmutable(), 1, Integer::sum) > 4) {
                         this.sweepSkip.add(var2);
                         this.sweepLate.add(var2.toImmutable());
                         this.sweepNow.remove(var2);
-                        AutoBuildMod.LOGGER.info("[AutoBuild] Đã 2 lần bước ra mà vẫn chưa đập được khối kê {} → để lúc thu dọn cuối, xây tiếp", var2.toShortString());
+                        AutoBuildMod.LOGGER.info("[AutoBuild] Đã 4 lần đổi chỗ đứng mà vẫn chưa đập được khối kê {} → để lúc thu dọn cuối, xây tiếp", var2.toShortString());
                         continue;
                      }
 
@@ -9069,6 +9195,8 @@ this.failures.remove(var1.pos());
 
    private int incompleteSaidAt = -100000;
 
+   private int fullSaidAt = -100000;
+
    private void pauseLayerIncomplete(BuildController.Scan var1, Integer var2) {
       LayerPlanner.Stat var3 = var1.layers.get(var2);
       // 3.0.81: không dừng — chờ rồi tự đi Order lại khi hết thời gian chờ
@@ -10449,7 +10577,14 @@ this.failures.remove(var1.pos());
 
                SchematicPlan.Target var25 = this.resolve(var24);
                PlacementSolver.Aim var26 = PlacementSolver.solve(this.mc, var2, var25, var3, true, var24.pos().asLong() * 31L);
-               if (var26 != null && PlacementSolver.robust(this.mc, PlacementSolver.poseEye(PlacementSolver.standingEye(this.mc, var2), var26.sneak()), var26, var3)) {
+               boolean var30 = var26 != null && PlacementSolver.robust(this.mc, PlacementSolver.poseEye(PlacementSolver.standingEye(this.mc, var2), var26.sneak()), var26, var3);
+               // 3.0.127: không có góc thật từ chỗ này nhưng góc gửi riêng đặt được → cũng đặt luôn (bước AIM tự dùng góc gửi riêng)
+               if (!var30 && this.spoofFor(var25) && PlacementSolver.solveSpoof(this.mc, var2, var25, var3, var24.pos().asLong() * 31L, null) != null) {
+                  var26 = null;
+                  var30 = true;
+               }
+
+               if (var30) {
                   BlockPos var27 = var24.pos().toImmutable();
                   SchematicPlan.Target var28 = this.target;
                   if (var28 != null && this.plan.at(var28.pos()) != null) {
@@ -11219,6 +11354,12 @@ this.failures.remove(var1.pos());
                      this.equip();
                      return;
                   }
+               }
+
+               // 3.0.127 (người dùng: "đặt crafter xuống mà không mở ra luôn"): crafter vừa đặt trên đường đi (Xây gần trước) mà chưa
+               // chỉnh → dừng lại chỉnh ngay khi còn trong tầm, không đi tiếp/đặt crafter khác rồi mới quay lại
+               if (this.moveDepth == 0 && this.mc.player.isOnGround() && this.crafterNow()) {
+                  return;
                }
 
                // 3.0.82: mỗi lần chạm đất (tối đa 4 tick/lần) xem quanh có ô đặt được ngay không → đặt luôn rồi đi tiếp
@@ -12688,7 +12829,13 @@ this.failures.remove(var1.pos());
       } else if (var1 != null && this.spoofAllowed()) {
          Integer var2 = this.lookUpCache.get(var1.pos());
          if (var2 == null || var2 != Integer.MAX_VALUE && var2 <= this.ticks) {
-            boolean var3 = PlacementSolver.needsLookUp(this.mc, var1) || !PlacementSolver.placeableSomewhere(this.mc, var1, true);
+            // 3.0.127 (người dùng: "sao không áp dụng góc nhìn giả nữa, nó nhanh hơn và giải quyết được vấn đề tìm đường"):
+            // bản cũ chỉ dùng góc gửi riêng cho khối phải nhìn lên mới đặt được → observer/piston/hopper… "trong tầm nhưng sai hướng"
+            // phải đi vòng / bắc cầu tìm chỗ đứng có góc thật (log 3.0.126: 38 lần "sai hướng", 0 lần dùng góc gửi riêng).
+            // Giờ: mọi khối có hướng đều được dùng góc gửi riêng khi từ chỗ đứng không có góc thật (góc thật vẫn ưu tiên trước)
+            boolean var3 = PlacementSolver.needsLookUp(this.mc, var1)
+               || !PlacementSolver.placeableSomewhere(this.mc, var1, true)
+               || !StateMatch.orientationFree(var1.state());
             this.lookUpCache.put(var1.pos().toImmutable(), var3 ? Integer.MAX_VALUE : this.ticks + 100);
             return var3;
          } else {
@@ -12933,7 +13080,21 @@ this.failures.remove(var1.pos());
          this.release();
          if (!this.config.buyBuckets || var1 != Items.WATER_BUCKET && var1 != Items.LAVA_BUCKET) {
             if (!this.config.collectFromOrders) {
-               this.pause("Thiếu " + var1.getName().getString() + "; bỏ vào túi rồi nhấn K.");
+               // 3.0.127: không dừng — xây phần khác, 60 giây nữa kiểm tra lại (bỏ thêm vào túi là dùng luôn)
+               this.missing.put(var1, this.ticks + 1200);
+               if (this.announcedMissing.add(var1)) {
+                  this.say("Thiếu " + var1.getName().getString() + " (đang tắt lấy từ Order) → xây phần khác, 60 giây nữa kiểm tra lại; bỏ vào túi là mod dùng luôn.");
+               }
+
+               if (this.target != null) {
+                  this.deferred.put(this.target.pos(), this.ticks + 1200);
+               }
+
+               if (this.temporary != null || this.supportTarget != null) {
+                  this.dropScaffoldJob(var1);
+               }
+
+               this.beginScan();
             } else if (this.missing.getOrDefault(var1, 0) > this.ticks) {
                if (this.target != null) {
                   this.deferred.put(this.target.pos(), this.missing.get(var1));
@@ -14129,7 +14290,9 @@ this.failures.remove(var1.pos());
                && !this.sweepBlocked(var6)
                && !var1.contains(var6)
                && !var8.intersects(new Box(var6))
-               && this.horizFar(var6, 1.5)
+               // 3.0.127 (người dùng: "bắc cầu đi đến đâu đập đằng sau đến đấy"): vừa bước hẳn sang khối mới (người không còn chạm
+               // khối cũ) là quay lại đập khối phía sau, không đợi cách 1,5 ô (bản cũ để lại cả dãy khối kê sau lưng)
+               && this.horizFar(var6, 0.95)
                && !(this.mc.player.getEyePos().squaredDistanceTo(Vec3d.ofCenter(var6)) > var3)
                && this.safeMiningStand(Navigation.cell(this.mc.player.getBlockPos()), var6)
                && this.safeToRemove(var6)
@@ -15893,7 +16056,14 @@ this.failures.remove(var1.pos());
                if (InventoryAccess.freeSlots(this.mc) < 1) {
                   // 3.0.95: không ném xô rỗng nữa → cất đồ vào ender chest / bán bớt để có chỗ
                   if (!this.freeSpace("Túi đầy, cần 1 ô để mua " + var1.getName().getString())) {
-                     this.pause("Túi đồ đầy; dọn một ô để mua " + var1.getName().getString() + " rồi nhấn K. Khối cần đổ vẫn chưa hoàn tất.");
+                     // 3.0.127: không dừng — để ô cần đổ này 60 giây, xây phần khác, lát nữa dọn túi rồi mua lại
+                     if (this.ticks - this.fullSaidAt > 6000) {
+                        this.fullSaidAt = this.ticks;
+                        this.say("Túi đồ đầy, chưa có chỗ mua " + var1.getName().getString() + " → xây phần khác, lát nữa tự dọn túi rồi mua lại.");
+                     }
+
+                     this.deferred.put(var3.pos(), this.ticks + 1200);
+                     this.beginScan();
                   }
                } else {
                   this.orderItem = var1;
@@ -16667,6 +16837,25 @@ this.failures.remove(var1.pos());
     * xong (Y=-42…-49, 795 ô/tầng) ở cách ≥ 15 ô đọc ra trống/đá → "từng xong nhưng giờ chưa đúng" hàng loạt, kéo mod xuống làm lại
     * tầng dưới, chui vào vùng đá. Chỉ tin khối đọc được trong 12 ô quanh người; xa hơn mà mình đã xác nhận xong thì vẫn coi là xong.
     */
+   private int redoWindowAt = -100000;
+   private int redoInWindow;
+
+   /** 3.0.127: log 3.0.126 có 2233 dòng "từng xong nhưng giờ chưa đúng/trống" liền nhau → chỉ ghi 5 dòng đầu mỗi 10 giây + số tổng */
+   void noteRedo(BlockPos var1) {
+      if (this.ticks - this.redoWindowAt > 200) {
+         if (this.redoInWindow > 5) {
+            AutoBuildMod.LOGGER.info("[AutoBuild] … tổng {} ô từng xong nhưng giờ chưa đúng/trống trong lượt trước → đã đưa lại vào danh sách xây", this.redoInWindow);
+         }
+
+         this.redoWindowAt = this.ticks;
+         this.redoInWindow = 0;
+      }
+
+      if (++this.redoInWindow <= 5) {
+         AutoBuildMod.LOGGER.info("[AutoBuild] {} từng xong nhưng giờ chưa đúng/trống → đưa lại vào danh sách xây", var1.toShortString());
+      }
+   }
+
    boolean trusted(BlockPos var1) {
       return this.mc.player == null || this.mc.player.getEyePos().squaredDistanceTo(Vec3d.ofCenter(var1)) <= 144.0;
    }
@@ -16702,6 +16891,9 @@ this.failures.remove(var1.pos());
    private int healthWaiveUntil = -100000;
    private int finishedAt = -100000;
    private int respawnAt = -100000;
+   private int deathSaidAt = -100000;
+   /** chỗ đứng gần nhất lúc đang xây (để biết hồi sinh xong có ở xa công trình không) */
+   private Vec3d lastRunPos;
    private int cursorDropAt = -100000;
    private int worldWaitSaidAt = -100000;
    private boolean autoKeys;
@@ -16918,6 +17110,22 @@ this.failures.remove(var1.pos());
                // người dùng đang dời/xoay placement → chờ nó đứng yên 30 giây rồi mới đọc lại (không xây theo vị trí đang kéo dở)
                this.status = "Placement vừa đổi → chờ 30 giây không đổi nữa rồi tự đọc lại (K để dừng hẳn)";
                this.autoNextAt = this.ticks + 20;
+               return;
+            }
+
+            // 3.0.127 (người dùng: chết → hồi sinh → /home của mod → xây tiếp; chưa có home thì báo chat và chờ ở chỗ hồi sinh)
+            if (this.respawnAt > -100000
+               && this.ticks - this.respawnAt < 12000
+               && this.lastRunPos != null
+               && this.mc.player.getPos().squaredDistanceTo(this.lastRunPos) > 4096.0
+               && (!this.config.useHome || this.config.ownHomeNumber <= 0 || !ScaffoldJournal.worldKey(this.mc).equals(this.config.ownHomeWorld))) {
+               this.status = "Đã chết và hồi sinh xa chỗ xây mà mod chưa có home → đứng chờ ở chỗ hồi sinh (về gần công trình là tự xây tiếp; K để dừng hẳn)";
+               if (this.ticks - this.deathSaidAt > 6000) {
+                  this.deathSaidAt = this.ticks;
+                  this.say(this.status);
+               }
+
+               this.autoNextAt = this.ticks + 100;
                return;
             }
 
@@ -18858,7 +19066,7 @@ this.failures.remove(var1.pos());
                      }
 
                      if (this.choose && BuildController.this.placedDone.remove(var3.pos())) {
-                        AutoBuildMod.LOGGER.info("[AutoBuild] {} từng xong nhưng giờ chưa đúng/trống → đưa lại vào danh sách xây", var3.pos().toShortString());
+                        BuildController.this.noteRedo(var3.pos());
                         String var95 = BuildController.this.pistonNear(var3.pos());
                         if (var95 != null) {
                            AutoBuildMod.LOGGER.info("[AutoBuild] {} nằm trước mặt {} → nhiều khả năng bị piston đẩy đi; tầng Y={} sẽ được làm lại trước khi lên tiếp", new Object[]{var3.pos().toShortString(), var95, var3.pos().getY()});
