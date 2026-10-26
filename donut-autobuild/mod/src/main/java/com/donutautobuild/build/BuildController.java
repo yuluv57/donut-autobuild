@@ -4852,7 +4852,8 @@ public final class BuildController {
                   double var14 = (double)Math.max(Math.abs(var10), Math.abs(var11)) * 2.0
                      + (Math.abs(var10) + Math.abs(var11)) * 0.1
                      + var9 * 0.5
-                     + (var13 != null && !var13.state().isAir() ? 0.3 : 0.0);
+                     + (var13 != null && !var13.state().isAir() ? 6.0 : 0.0);
+                  // 3.0.126: tránh đặt ender chest vào ô bản vẽ có khối (log: đặt vào chỗ Observer → bị đưa vào hàng sửa)
                   if (var14 < var7) {
                      var7 = var14;
                      var6 = var12;
@@ -5304,7 +5305,10 @@ public final class BuildController {
 
    private boolean menuBusyNow() {
       try {
-         return this.menuStage()
+         // 3.0.126: bước ender chest / khối chứa / crafter chỉ tính là "bận menu" khi đang mở menu thật. Bản 3.0.124 tính cả lúc
+         // đã đóng menu → đổi cúp để đập ender chest xong không xin server xác nhận túi đồ được → đứng chờ 12 giây rồi bỏ đi,
+         // ender chest nằm lại (log 3.0.125: 01:07:26, 01:18:18 lặp mãi "12 giây chưa đập được")
+         return this.menuStage() && this.mc.player != null && this.mc.player.currentScreenHandler != this.mc.player.playerScreenHandler
             || this.shopping
             || this.browsing
             || this.orders.active()

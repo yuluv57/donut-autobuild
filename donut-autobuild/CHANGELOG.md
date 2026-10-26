@@ -8,6 +8,22 @@ Các bản không có mục riêng: 2.0.0–2.9.9 (16–18/09), 3.0.0–3.0.16 (
 
 ---
 
+## 3.0.126 — 26/10/2026 · ender chest đặt xong đứng chờ, không đập thu về
+
+### 1. Đặt ender chest xong đứng chờ rất lâu rồi bỏ lại, không đập
+- **Triệu chứng (log 3.0.125):** "Ender chest @ …: 12 giây chưa đập được → để lại", rồi "còn nằm lại từ lần trước → đập thu về" lặp mãi (01:07:26–01:08:08, 01:18:18–01:19:12).
+- **Nguyên nhân:** từ 3.0.124, trong lúc làm việc với menu server mod không bấm túi đồ và không xin server gửi lại túi đồ. Nhưng bản 3.0.124 tính cả **bước ender chest** là "đang dùng menu", kể cả khi menu ender chest đã đóng.
+  - Lúc đập, mod đổi cúp lên tay (SWAP). Sau khi đổi đồ, mod phải chờ server xác nhận túi đồ rồi mới đập.
+  - Yêu cầu xác nhận đó bị chặn, nên mod đứng chờ đủ 12 giây rồi bỏ đi, để ender chest nằm lại.
+  - Khối chứa và crafter cũng bị cùng lỗi này.
+- **Sửa:** bước ender chest, khối chứa và crafter chỉ tính là "đang dùng menu" khi menu thật sự đang mở. Shop, Order, home, bán đồ và tiếp tế vẫn được chặn suốt cả lượt như 3.0.124, vì đây là chỗ đã làm shop bị đóng.
+
+### 2. Ender chest bị đặt vào ô bản vẽ có khối
+- **Triệu chứng (log 01:18:23):** ender chest đặt vào chỗ Observer của bản vẽ, nên bị đưa vào hàng sửa.
+- **Sửa:** khi chọn chỗ đặt ender chest, ô có khối trong bản vẽ bị trừ điểm nặng. Mod chỉ chọn ô đó khi xung quanh không còn ô trống nào khác.
+
+---
+
 ## 3.0.125 — 26/10/2026 · mua xô ngay khi chưa có, shop mua tới khi đủ, khối chứa bị che kín, home mất, ender chest
 
 ### 1. Chờ đổ nước mãi mà trong túi không có xô nước (log 3.0.124, 20:48:02–20:48:35)
