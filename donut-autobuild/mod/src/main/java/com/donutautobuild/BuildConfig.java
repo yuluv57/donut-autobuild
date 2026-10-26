@@ -102,7 +102,7 @@ public final class BuildConfig {
    public long moneySince;
    public java.util.Map<String, Integer> crafterLayerMasks = new java.util.HashMap<>();
    public int configVersion;
-   private static final int CURRENT_VERSION = 10;
+   private static final int CURRENT_VERSION = 11;
    public int maxScaffoldBlocks = 2048;
    public int maxBridgeBlocks = 8;
    public int pathNodeLimit = 20000;
@@ -164,6 +164,13 @@ public final class BuildConfig {
             var0.ownHomeManual = false;
             var0.ownHomeLayer = Integer.MIN_VALUE;
             var0.configVersion = 10;
+         }
+
+         if (var0.configVersion < 11) {
+            // 3.0.124 (người dùng): xô nước/lava/tuyết bột mặc định mua ở /shop; Order trống thì luôn thử /shop
+            var0.buyBuckets = true;
+            var0.shopFallback = true;
+            var0.configVersion = 11;
          }
 
          var0.clamp();

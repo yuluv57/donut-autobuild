@@ -8,6 +8,43 @@ Các bản không có mục riêng: 2.0.0–2.9.9 (16–18/09), 3.0.0–3.0.16 (
 
 ---
 
+## 3.0.124 — 26/10/2026 · đặt hopper từ nóc rương, shop luôn mở khi Order trống, cho đủ đồ khối chứa mới lên tầng, shift-click, tab Crafter
+
+### 1. Kẹt đặt hopper hướng vào rương (log 3.0.123)
+- **Nguyên nhân:** hopper phải quay vào mặt tây của rương đôi bên cạnh, tức là phải bấm vào mặt bên của rương. Dưới hopper là không khí, nên chỗ đứng duy nhất là nóc rương. Rương chỉ cao 0,875 khối: muốn bấm được mặt bên thì phải nghiêng ra mép, mà nghiêng ra mép thì người lấn vào ô của hopper, nên game không cho đặt. Người thật cũng không đặt được từ chỗ đó.
+- **Sửa (`liftOverLowFloor`):** đang đứng trên khối thấp hơn 1 (rương, nửa sàn dưới…) mà ô cần đặt cao hơn chân thì:
+  - kê tạm 1 khối kê lên nóc khối thấp (ngồi để rương không mở);
+  - đứng lên khối kê, nghiêng ra mép tối đa như người chơi rồi đặt;
+  - đặt xong thì đập khối kê.
+  Mỗi ô chỉ thử cách này 1 lần mỗi tầng.
+
+### 2. Order trống nhưng không mở shop
+- **Nguyên nhân 1:** sau 1 lần thử /shop, mod nghỉ 3 phút mới thử shop lại cho cùng món. Trong 3 phút đó Order trống thì mod chỉ chờ.
+  - **Sửa:** bỏ thời gian nghỉ. Lần nào Order trống cũng mở /shop.
+- **Nguyên nhân 2:** tìm "bone meal" bằng bảng chữ thì shop quay về Quick Buy. Lúc đóng bảng chữ, mod gửi gói "xin gửi lại túi đồ" và gói "đóng túi". Server đóng **mọi** menu đang mở khi nhận gói đóng túi, nên shop cũng bị đóng.
+  - **Sửa:** khi đang làm việc với menu server (shop, Order, home, bán, ender chest, khối chứa, tiếp tế), mod không bấm túi đồ và không gửi gói đóng túi. Các việc đó để dành tới lúc xong menu.
+- Xô nước, xô lava và xô tuyết bột mặc định mua thẳng ở /shop, không qua Order. Cấu hình cũ được bật lại khi chạy bản này lần đầu.
+
+### 3. Dropper chưa có nước mà vẫn báo xong và lên tầng
+- **Nguyên nhân:** việc cho đồ vào khối chứa chỉ chạy khi khối chứa ở gần. Tầng xong là mod lên tầng mới, bỏ lại khối chứa còn thiếu.
+- **Sửa:** trước khi lên tầng mới, mod tìm các khối chứa ở tầng dưới còn thiếu đồ thường, rồi đi tới cho đủ. Đồ còn thiếu thì mod đi lấy (ender chest → Order → /shop) và chờ có đồ.
+  - Chỉ được lên tầng khi đồ còn thiếu là đồ có tên riêng mà trong túi không có. Khi có đồ đúng tên thì mod vẫn tự cho vào.
+  - Không tới được khối chứa sau 6 lần thử thì báo chat, rồi xây tiếp.
+
+### 4. Cho đồ vào khối chứa nhanh hơn
+- Chồng nào cho trọn được (số lượng ≤ số còn thiếu, khối chứa còn đủ chỗ) thì dùng shift + chuột trái cả chồng.
+- Phần lẻ thì cầm lên rồi bấm chuột phải từng chiếc, đúng số lượng.
+- Shift-click chỉ dùng cho rương, thùng, hopper, dropper, dispenser. Lò và giá pha thuốc tự xếp ô theo loại đồ, nên vẫn bấm từng ô.
+- Kiểm thử: rương cần 138 cobble, trong túi có 64 + 64 + 40. Mod dùng 2 shift-click, cầm 1 lần, 10 chuột phải, trả 1 lần (14 cú bấm). Kết quả: rương đủ 138, trong túi còn 30.
+
+### 5. Tab Crafter trong menu U
+- Bật/tắt "Tự chỉnh ô crafter khi đặt".
+- Danh sách tầng có crafter: số crafter, số kiểu trong bản vẽ, tầng nào đang chỉnh tay. Bấm vào tầng để chọn.
+- Lưới 3×3 của tầng đang chọn: bấm từng ô để tắt hoặc mở, áp dụng cho mọi crafter của tầng.
+- Nút "Theo bản vẽ": bỏ chỉnh tay, mỗi crafter lấy đúng kiểu của nó trong bản vẽ.
+
+---
+
 ## 3.0.123 — 26/10/2026 · hết "túi đồ mở" khi đi/đặt/đập, cho đồ vào khối chứa, ender chest 1 lần, chọn home cho mod
 
 ### 1. Vẫn bị giật nhiều (cả khi chỉ đi trên sàn phẳng, ngay lúc bắt đầu)

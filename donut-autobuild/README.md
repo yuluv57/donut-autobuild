@@ -2,7 +2,7 @@
 
 Mod Fabric **client** cho Minecraft 1.21.4. Tự xây một placement của Litematica trong chế độ Sinh tồn trên server DonutSMP. Mod điều khiển nhân vật như người chơi thật: bấm phím W/A/S/D, ngồi, nhảy, chuột trái/phải. Server không cần cài gì.
 
-Bản hiện tại: **3.0.123** (`release/donut-autobuild-fabric-1.21.4-3.0.123.jar`).
+Bản hiện tại: **3.0.124** (`release/donut-autobuild-fabric-1.21.4-3.0.124.jar`).
 
 - Lịch sử sửa lỗi: [CHANGELOG.md](CHANGELOG.md)
 - Hướng dẫn review bản này: [docs/REVIEW-3.0.121.md](docs/REVIEW-3.0.121.md)
@@ -33,7 +33,7 @@ Cần:
 - MaLiLib (đang dùng 0.23.5)
 - Java 21
 
-Chép `release/donut-autobuild-fabric-1.21.4-3.0.123.jar` vào thư mục `mods`. Trong `mods` chỉ được có **một** bản AutoBuild.
+Chép `release/donut-autobuild-fabric-1.21.4-3.0.124.jar` vào thư mục `mods`. Trong `mods` chỉ được có **một** bản AutoBuild.
 
 ## Cách dùng
 
@@ -47,7 +47,7 @@ Chỉ **K**, `/autobuild stop` và nút "Dừng, giữ tiến độ" mới dừn
 
 | Phím | Việc |
 |---|---|
-| U | Menu (tab Công trình / Vật liệu / Cài đặt) |
+| U | Menu (tab Công trình / Vật liệu / Crafter / Cài đặt) |
 | K | Chạy / dừng |
 | N | Freecam: W/A/S/D bay, Space lên, Shift xuống, Ctrl bay nhanh. Bật freecam thì mod tạm dừng xây |
 | PgUp / PgDn | Xem tầng trên / dưới của schematic |
@@ -95,7 +95,7 @@ mod/src/main/java/com/donutautobuild/
 │   └── …                  StateMatch, Materials, ServerAck, PlacementRecoveryBudget, SurvivalSupplies…
 ├── logic/                 thuật toán không phụ thuộc Minecraft: A*, chia hàng, chọn tầng
 ├── order/                 menu server: Order, Shop (mua/tìm), /home, /sell, theo dõi chat/menu, đếm tiền
-├── gui/                   menu U (3 tab) + màn chọn file + màn chỉnh vị trí
+├── gui/                   menu U (4 tab) + màn chọn file + màn chỉnh vị trí
 ├── schematic/             thư viện file schematic, đặt/di chuyển placement
 └── mixin/                 5 mixin freecam (camera, nhìn, tương tác, tay, sương mù)
 ```
@@ -118,7 +118,7 @@ Cần:
 
 Jar ra ở `mod/build/libs/`. So jar vừa build với jar phát hành: [tools/README.md](tools/README.md).
 
-Jar 3.0.123 trong `release/` được build bằng chính bộ Gradle này (`./gradlew build`, Loom 1.17.7). Các bản ≤ 3.0.121 được biên dịch bằng `javac` với stub Minecraft rồi remap sang tên intermediary.
+Jar 3.0.124 trong `release/` được build bằng chính bộ Gradle này (`./gradlew build`, Loom 1.17.7). Các bản ≤ 3.0.121 được biên dịch bằng `javac` với stub Minecraft rồi remap sang tên intermediary.
 
 ## Kiểm thử
 

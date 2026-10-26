@@ -82,6 +82,21 @@ public final class InventoryAccess {
     // ("client thấy vỡ nhưng server chưa phá"). Giờ: chỉ bấm khi đứng yên (hết trượt, không chạy nhanh) và cuối tick gửi gói đóng túi.
     private static final long[] hotbarUsed = new long[9];
     private static boolean closePending;
+    /**
+     * 3.0.124: đang làm việc với menu server (shop, order, home, bán, ender chest, khối chứa…). Server đóng MỌI menu đang mở khi nhận
+     * gói đóng túi (không xét số menu) → log 3.0.123: vừa gõ bảng tìm "bone meal" xong, gói xin đồng bộ + gói đóng túi đi ngay sau
+     * → shop bị đóng, quay về Quick Buy. Lúc này không bấm túi đồ, không gửi gói đóng túi; để dành tới khi xong menu.
+     */
+    private static long menuBusyAt = -100000L;
+
+    public static void setMenuBusy(boolean busy) {
+        if (busy) menuBusyAt = System.currentTimeMillis();
+    }
+
+    /** còn hiệu lực 300 ms sau lần cuối BuildController báo bận (mod dừng hẳn thì tự hết) */
+    private static boolean menuBusy() {
+        return System.currentTimeMillis() - menuBusyAt < 300L;
+    }
     private static long stillWantedAt;
 
     /** đứng yên đủ để bấm vào túi đồ; chưa yên thì yêu cầu BuildController dừng lại (stillWanted) */
@@ -122,6 +137,7 @@ public final class InventoryAccess {
     public static void flushClose(MinecraftClient mc) {
         if (!closePending) return;
         closePending = false;
+        if (menuBusy()) return;
         if (mc.player == null || mc.getNetworkHandler() == null) return;
         if (mc.player.currentScreenHandler != mc.player.playerScreenHandler) return;
         if (mc.currentScreen instanceof net.minecraft.client.gui.screen.ingame.InventoryScreen) return;
@@ -479,6 +495,7 @@ public final class InventoryAccess {
          }
 
          boolean var3 = !var1
+            || menuBusy()
             || var0.currentScreen != null
             || var0.player.currentScreenHandler != var0.player.playerScreenHandler
             || !var0.player.playerScreenHandler.getCursorStack().isEmpty();
@@ -514,6 +531,7 @@ public final class InventoryAccess {
    public static void confirmNow(MinecraftClient var0, String var1) {
       markDirty(var0, var1);
       if (resyncSentAt == 0L
+         && !menuBusy()
          && invReady(var0)
          && var0.getNetworkHandler() != null
          && var0.player.currentScreenHandler == var0.player.playerScreenHandler

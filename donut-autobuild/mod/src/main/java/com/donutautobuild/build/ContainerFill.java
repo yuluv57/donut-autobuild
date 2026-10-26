@@ -19,6 +19,9 @@ import net.minecraft.item.ItemStack;
 import net.minecraft.nbt.NbtCompound;
 import net.minecraft.nbt.NbtList;
 import net.minecraft.registry.RegistryWrapper;
+import net.minecraft.screen.Generic3x3ContainerScreenHandler;
+import net.minecraft.screen.GenericContainerScreenHandler;
+import net.minecraft.screen.HopperScreenHandler;
 import net.minecraft.screen.ScreenHandler;
 import net.minecraft.screen.slot.Slot;
 import net.minecraft.screen.slot.SlotActionType;
@@ -206,6 +209,13 @@ public final class ContainerFill {
             for (Want var15 : this.wants.values()) {
                int var16 = var15.count() - var9.getOrDefault(var15.key(), 0);
                if (var16 > 0) {
+                  // 3.0.124 (người dùng): chồng nào cho trọn được (≤ số còn thiếu) thì shift + chuột trái cả chồng cho nhanh
+                  int var18 = this.wholeStack(var1, var2, var15.key(), var16);
+                  if (var18 >= 0) {
+                     ItemStack var19 = var1.getSlot(var18).getStack();
+                     return new Click(var18, 0, SlotActionType.QUICK_MOVE, "shift-click " + var19.getCount() + " " + var15.key().label() + " vào (cần thêm " + var16 + ")");
+                  }
+
                   int var17 = this.source(var1, var2, var15.key(), var16);
                   if (var17 < 0) {
                      this.missing.add(new Want(var15.key(), var16, var15.slots()));
@@ -293,6 +303,49 @@ public final class ContainerFill {
          }
 
          return false;
+      }
+
+      /**
+       * ô túi đồ có chồng key cho trọn được bằng shift-click: số lượng ≤ cần, khối chứa còn đủ chỗ cho cả chồng. Chỉ với rương/thùng/
+       * phễu/dropper/dispenser — lò, giá pha chế tự xếp ô theo loại đồ (shift-click có thể chuyển đồ giữa túi và thanh nóng).
+       */
+      private int wholeStack(ScreenHandler var1, int var2, Key var3, int var4) {
+         if (!(var1 instanceof GenericContainerScreenHandler) && !(var1 instanceof Generic3x3ContainerScreenHandler) && !(var1 instanceof HopperScreenHandler)) {
+            return -1;
+         } else {
+            int var5 = -1;
+            int var6 = 0;
+
+            for (int var7 = var2; var7 < var1.slots.size(); var7++) {
+               ItemStack var8 = var1.getSlot(var7).getStack();
+               if (!var8.isEmpty() && var8.getCount() <= var4 && var8.getCount() > var6 && key(var8).equals(var3) && room(var1, var2, var8) >= var8.getCount()) {
+                  var6 = var8.getCount();
+                  var5 = var7;
+               }
+            }
+
+            return var5;
+         }
+      }
+
+      /** chỗ trống cho món này trong phần khối chứa */
+      private static int room(ScreenHandler var0, int var1, ItemStack var2) {
+         int var3 = 0;
+
+         for (int var4 = 0; var4 < var1; var4++) {
+            Slot var5 = var0.getSlot(var4);
+            if (var5.canInsert(var2)) {
+               ItemStack var6 = var5.getStack();
+               int var7 = Math.min(var2.getMaxCount(), var5.getMaxItemCount(var2));
+               if (var6.isEmpty()) {
+                  var3 += var7;
+               } else if (ItemStack.areItemsAndComponentsEqual(var6, var2)) {
+                  var3 += Math.max(0, var7 - var6.getCount());
+               }
+            }
+         }
+
+         return var3;
       }
 
       /** ô túi đồ có món key: ưu tiên chồng vừa đủ / nhỏ nhất ≥ cần, không thì chồng lớn nhất */

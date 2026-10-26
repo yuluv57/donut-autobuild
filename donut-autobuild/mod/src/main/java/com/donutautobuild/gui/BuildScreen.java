@@ -14,9 +14,10 @@ import net.minecraft.text.Text;
 
 /** The 3.0.109 Công trình / Vật liệu / Cài đặt GUI, with placement editing added. */
 public final class BuildScreen extends LegacyPanelScreen {
-    private enum Tab { BUILD, MATERIALS, SETTINGS }
+    private enum Tab { BUILD, MATERIALS, CRAFTER, SETTINGS }
     private static Tab tab = Tab.BUILD;
     private static boolean wholeBuild;
+    private static Integer crafterLayer;
     private final BuildConfig config;
     private final BuildController controller;
     private TextFieldWidget yStart, yEnd, reach, delay, randomDelay, rotMin, rotMax, overshoot;
@@ -28,14 +29,14 @@ public final class BuildScreen extends LegacyPanelScreen {
     }
     @Override protected void init() {
         beginPanel(); yStart = yEnd = null; startButton = null;
-        String[] names = {"Công trình", "Vật liệu", "Cài đặt"};
+        String[] names = {"Công trình", "Vật liệu", "Crafter", "Cài đặt"};
         for (int i = 0; i < names.length; i++) {
-            Tab next = Tab.values()[i]; int bx = x() + i * w() / 3, end = x() + (i + 1) * w() / 3;
+            Tab next = Tab.values()[i]; int bx = x() + i * w() / names.length, end = x() + (i + 1) * w() / names.length;
             button(bx, layout.y() + 18, end - bx - 2, (tab == next ? "§a" : "") + names[i], () -> {
                 if (saveYRange()) { tab = next; scroll = 0; clearAndInit(); }
             }, null);
         }
-        int rows = switch (tab) { case BUILD -> initBuild(); case MATERIALS -> initMaterials(); case SETTINGS -> initSettings(); };
+        int rows = switch (tab) { case BUILD -> initBuild(); case MATERIALS -> initMaterials(); case CRAFTER -> initCrafter(); case SETTINGS -> initSettings(); };
         finishPanel(rows, "Xem trong thế giới", this::close);
     }
     private int initBuild() {
@@ -181,6 +182,47 @@ public final class BuildScreen extends LegacyPanelScreen {
             "Không dùng: mod không bao giờ /home, /sethome. Home N: chọn 1 home còn TRỐNG giao cho mod — từ tầng 3 mod tự xoá home N cũ và /sethome N ở mỗi tầng, lỡ ngã thì /home N. Các home khác mod không đụng tới.");
         rowButton(11, x(), w(), "§aLưu cài đặt", this::saveSettings, null);
         return 12;
+    }
+    /**
+     * 3.0.124 (người dùng: "GUI cho crafter như trước"): danh sách tầng có crafter, lưới 3×3 bấm để tắt/mở từng ô cho cả tầng,
+     * "Theo bản vẽ" để bỏ chỉnh tay. Bit i của mask = ô i bị tắt.
+     */
+    private int initCrafter() {
+        toggle(0, x(), w(), "Tự chỉnh ô crafter khi đặt", () -> config.configureCrafters, value -> config.configureCrafters = value);
+        List<Integer> layers = controller == null ? List.of() : controller.crafterLayers();
+        if (layers.isEmpty()) {
+            label(1, () -> controller != null && controller.hasPlan() ? "Bản vẽ không có crafter." : "Nhấn Nạp ở tab Công trình trước.", DIM);
+            return 2;
+        }
+        if (crafterLayer == null || !layers.contains(crafterLayer)) crafterLayer = layers.get(0);
+        final int y = crafterLayer;
+        Integer override = controller.crafterLayerOverride(y);
+        int schematic = controller.schematicCrafterMask(y), kinds = controller.schematicCrafterKinds(y);
+        int mask = override != null ? override : Math.max(0, schematic);
+        label(1, () -> "Tầng Y=" + y + " · " + controller.crafterCount(y) + " crafter · " + (override != null ? "§eđang chỉnh tay" : "§atheo bản vẽ")
+            + (kinds > 1 && override == null ? " §7(bản vẽ có " + kinds + " kiểu, mỗi crafter theo kiểu của nó)" : ""), TEXT);
+        int cell = Math.min(60, (w() - 8) / 3), left = x() + (w() - cell * 3 - 4) / 2;
+        for (int r = 0; r < 3; r++) for (int c = 0; c < 3; c++) {
+            final int bit = 1 << (r * 3 + c);
+            boolean off = (mask & bit) != 0;
+            rowButton(2 + r, left + c * (cell + 2), cell, off ? "§c✕ Tắt" : "§a■ Mở", () -> {
+                Integer cur = controller.crafterLayerOverride(y);
+                int base = cur != null ? cur : Math.max(0, controller.schematicCrafterMask(y));
+                controller.setCrafterLayerOverride(y, base ^ bit); clearAndInit();
+            }, "Bấm để tắt/mở ô này cho mọi crafter tầng Y=" + y);
+        }
+        rowButton(5, x(), w(), override == null ? "§7Theo bản vẽ (đang dùng)" : "Theo bản vẽ", () -> { controller.setCrafterLayerOverride(y, null); clearAndInit(); },
+            "Bỏ chỉnh tay: mỗi crafter lấy đúng kiểu trong bản vẽ" + (schematic < 0 ? " (bản vẽ không có dữ liệu → không chỉnh)" : ""));
+        label(6, () -> "Các tầng có crafter:", ACCENT);
+        int row = 7;
+        for (int layer : layers) {
+            final int ly = layer;
+            Integer o = controller.crafterLayerOverride(ly);
+            int k = controller.schematicCrafterKinds(ly);
+            rowButton(row++, x(), w(), (ly == y ? "§a▶ " : "") + "Y=" + ly + " · " + controller.crafterCount(ly) + " crafter · bản vẽ " + k + " kiểu" + (o != null ? " · §echỉnh tay" : ""),
+                () -> { crafterLayer = ly; clearAndInit(); }, null);
+        }
+        return row;
     }
     private String homeText() { return config.modHomeNumber <= 0 ? "Home cho mod: §eKhông dùng" : "Home cho mod: §aHome " + config.modHomeNumber; }
     private void setModHome(int number) {
