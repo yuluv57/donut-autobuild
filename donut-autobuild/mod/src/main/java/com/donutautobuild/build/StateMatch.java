@@ -5,8 +5,10 @@ import java.util.Set;
 import net.minecraft.block.BlockState;
 import net.minecraft.block.ChestBlock;
 import net.minecraft.block.ComparatorBlock;
+import net.minecraft.block.ComposterBlock;
 import net.minecraft.block.DaylightDetectorBlock;
 import net.minecraft.block.DoorBlock;
+import net.minecraft.block.NoteBlock;
 import net.minecraft.block.RepeaterBlock;
 import net.minecraft.block.SlabBlock;
 import net.minecraft.block.TrapdoorBlock;
@@ -33,9 +35,13 @@ public final class StateMatch {
       "snowy",
       "bloom",
       "tip",
-      "bottom"
+      "bottom",
+      // 3.0.122 (người dùng): "open" chỉ là đang mở/đóng (cửa, cửa sập, cổng rào, thùng) → cùng khối là đúng, không đập
+      "open",
+      "enabled"
    );
-   private static final Set<String> SETTINGS = Set.of("delay", "mode", "open", "inverted");
+   // 3.0.122: bỏ "open" (giờ là trạng thái, không bấm chuột phải đóng/mở nữa); delay/mode của repeater/comparator vẫn chỉnh cho đúng
+   private static final Set<String> SETTINGS = Set.of("delay", "mode", "inverted");
    private static final Set<String> ORIENTATION = Set.of(
       "facing", "axis", "half", "type", "face", "rotation", "attachment", "hanging", "orientation", "vertical_direction", "part"
    );
@@ -91,6 +97,7 @@ public final class StateMatch {
                      break;
                   }
                } else if (!LIVE.contains(var5)
+                  && !blockState(var1, var5)
                   && !var5.equals("north")
                   && !var5.equals("south")
                   && !var5.equals("east")
@@ -106,6 +113,18 @@ public final class StateMatch {
          }
       } else {
          return false;
+      }
+   }
+
+   /**
+    * 3.0.122 (người dùng): khối chỉ khác trạng thái thì bản chất vẫn thế, không cần đập — Litematica tô vàng nhưng vẫn đúng:
+    * Composter (mức phân "level"), Note Block (nốt "note", nhạc cụ "instrument" — nhạc cụ do khối bên dưới quyết định).
+    */
+   private static boolean blockState(BlockState var0, String var1) {
+      if (var0.getBlock() instanceof ComposterBlock) {
+         return var1.equals("level");
+      } else {
+         return var0.getBlock() instanceof NoteBlock ? var1.equals("note") || var1.equals("instrument") : false;
       }
    }
 
@@ -179,7 +198,8 @@ public final class StateMatch {
    public static boolean configurable(BlockState var0, BlockState var1) {
       if (!placementMatches(var0, var1)) {
          return false;
-      } else if (property(var0, "powered").equals("true")) {
+      } else if (property(var0, "powered").equals("true") && !(var0.getBlock() instanceof RepeaterBlock) && !(var0.getBlock() instanceof ComparatorBlock)) {
+         // 3.0.122: repeater/comparator đang có điện vẫn chỉnh delay/mode bằng chuột phải được (chỉ khác "powered" thì đã coi là đúng)
          return false;
       } else {
          return !(var0.getBlock() instanceof RepeaterBlock)

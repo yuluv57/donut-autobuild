@@ -18,6 +18,10 @@ public final class PathSearch {
    private final Map<PathSearch.Cell, PathSearch.Cell> previous = new HashMap<>();
    private final Set<PathSearch.Cell> closed = new HashSet<>();
    private final Set<PathSearch.Cell> goals;
+   // 3.0.122: toạ độ đích dạng mảng — heuristic chạy cho MỌI ô được xét, duyệt HashSet mỗi lần chậm
+   private final int[] gx;
+   private final int[] gy;
+   private final int[] gz;
    private final PathSearch.Terrain terrain;
    private final int limit;
    private static final long MAX_ACTIVE_SEARCH_NANOS = 300000000L;
@@ -32,6 +36,17 @@ public final class PathSearch {
 
    public PathSearch(Collection<PathSearch.Cell> var1, Collection<PathSearch.Cell> var2, PathSearch.Terrain var3, int var4) {
       this.goals = Set.copyOf(var2);
+      this.gx = new int[this.goals.size()];
+      this.gy = new int[this.goals.size()];
+      this.gz = new int[this.goals.size()];
+      int var7 = 0;
+
+      for (PathSearch.Cell var8 : this.goals) {
+         this.gx[var7] = var8.x();
+         this.gy[var7] = var8.y();
+         this.gz[var7++] = var8.z();
+      }
+
       this.terrain = var3;
       this.limit = var4;
 
@@ -55,13 +70,23 @@ public final class PathSearch {
    }
 
    private double heuristic(PathSearch.Cell var1) {
-      double var2 = Double.POSITIVE_INFINITY;
+      if (this.gx.length == 0) {
+         return 0.0;
+      } else {
+         int var2 = Integer.MAX_VALUE;
+         int var3 = var1.x();
+         int var4 = var1.y();
+         int var5 = var1.z();
 
-      for (PathSearch.Cell var5 : this.goals) {
-         var2 = Math.min(var2, var1.getDistance(var5));
+         for (int var6 = 0; var6 < this.gx.length; var6++) {
+            int var7 = Math.abs(var3 - this.gx[var6]) + Math.abs(var4 - this.gy[var6]) + Math.abs(var5 - this.gz[var6]);
+            if (var7 < var2) {
+               var2 = var7;
+            }
+         }
+
+         return var2 * 0.7;
       }
-
-      return Double.isFinite(var2) ? var2 * 0.7 : 0.0;
    }
 
    public void advance(int var1) {

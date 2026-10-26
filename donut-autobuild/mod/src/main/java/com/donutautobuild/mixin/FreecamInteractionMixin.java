@@ -18,6 +18,8 @@ public abstract class FreecamInteractionMixin {
     @Inject(method = {"doItemUse", "method_1583"}, at = @At("HEAD"), cancellable = true, remap = false)
     private void donutautobuild$freecamUse(CallbackInfo ci) {
         if (Freecam.active()) ci.cancel();
+        // 3.0.122: cú chuột phải thật của mod (Input.queueUse) được thực hiện đúng lúc game xử lý chuột phải
+        else if (com.donutautobuild.build.Input.onDoItemUse(MinecraftClient.getInstance())) ci.cancel();
     }
 
     @Inject(method = {"handleBlockBreaking", "method_1590"}, at = @At("HEAD"), cancellable = true, remap = false)

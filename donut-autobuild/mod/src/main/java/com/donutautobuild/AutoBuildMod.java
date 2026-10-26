@@ -47,6 +47,7 @@ public final class AutoBuildMod implements ClientModInitializer {
       KeyBinding var3 = KeyBindingHelper.registerKeyBinding(new KeyBinding("key.donutautobuild.layer_up", Type.KEYSYM, 266, "category.donutautobuild"));
       KeyBinding var4 = KeyBindingHelper.registerKeyBinding(new KeyBinding("key.donutautobuild.layer_down", Type.KEYSYM, 267, "category.donutautobuild"));
       ClientTickEvents.END_CLIENT_TICK.register(var4x -> {
+         com.donutautobuild.build.Input.useTick(var4x);
          while (var1.wasPressed()) {
             controller.toggle();
          }
@@ -75,7 +76,12 @@ public final class AutoBuildMod implements ClientModInitializer {
          }
 
          com.donutautobuild.build.Reconnector.tick(var4x, controller);
-         controller.tick();
+         try {
+            controller.tick();
+         } finally {
+            // 3.0.122: phím mod bấm trong tick này → sự kiện phím/chuột thật
+            com.donutautobuild.build.Input.flush(var4x);
+         }
       });
       ClientCommandRegistrationCallback.EVENT
          .register(

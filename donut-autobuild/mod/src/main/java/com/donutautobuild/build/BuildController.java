@@ -1050,12 +1050,15 @@ public final class BuildController {
 
    public void pause(String var1) {
       this.cancelSurvivalSupplies();
+      // 3.0.122: cú chuột phải chưa được game xử lý thì bỏ (không để người chơi bấm ra cú đặt của mod)
+      Input.cancelUse(this.mc);
+      this.qualityAttackPos = null;
       if (this.running) {
          this.saveDone(true);
       }
 
       if (this.eating) {
-         this.mc.options.useKey.setPressed(false);
+         Input.key(this.mc.options.useKey, false);
          this.eating = false;
       }
 
@@ -1150,13 +1153,13 @@ public final class BuildController {
    }
 
    private void release() {
-      this.mc.options.forwardKey.setPressed(false);
-      this.mc.options.backKey.setPressed(false);
-      this.mc.options.leftKey.setPressed(false);
-      this.mc.options.rightKey.setPressed(false);
-      this.mc.options.jumpKey.setPressed(false);
+      Input.key(this.mc.options.forwardKey, false);
+      Input.key(this.mc.options.backKey, false);
+      Input.key(this.mc.options.leftKey, false);
+      Input.key(this.mc.options.rightKey, false);
+      Input.key(this.mc.options.jumpKey, false);
       Input.sprint(this.mc, false, this.ticks);
-      this.mc.options.attackKey.setPressed(false);
+      Input.key(this.mc.options.attackKey, false);
       Input.sneak(this.mc, this.running && this.overhanging(), this.ticks);
    }
 
@@ -1180,7 +1183,8 @@ public final class BuildController {
 
       LayerView.clientTick(this.mc);
       long var1 = System.nanoTime();
-      this.tickDeadline = var1 + 10000000L;
+      // 3.0.122 (người dùng: "tìm đường, xử lý đang rất chậm"): 10 ms → 20 ms tính toán mỗi tick (1 tick = 50 ms)
+      this.tickDeadline = var1 + 20000000L;
       this.heavyLabel = "";
       BuildController.Stage var3 = this.stage;
       Input.restoreBreaking(this.mc);
@@ -1360,7 +1364,7 @@ public final class BuildController {
                   this.stallCheck();
                   if (this.mc.player.isSubmergedInWater()) {
                      // 3.0.81: lỡ rơi xuống nước → bơi lên, không dừng
-                     this.mc.options.jumpKey.setPressed(true);
+                     Input.key(this.mc.options.jumpKey, true);
                      this.status = "Rơi xuống nước → bơi lên";
                   }
 
@@ -2350,19 +2354,19 @@ public final class BuildController {
       double var4 = var1.z - this.mc.player.getZ();
       float var6 = MotionMath.wrap(MotionMath.yaw(var2, var4) - this.mc.player.getYaw());
       if (Math.abs(var6) < 67.5F) {
-         this.mc.options.forwardKey.setPressed(true);
+         Input.key(this.mc.options.forwardKey, true);
       }
 
       if (Math.abs(var6) > 112.5F) {
-         this.mc.options.backKey.setPressed(true);
+         Input.key(this.mc.options.backKey, true);
       }
 
       if (var6 > 22.5F && var6 < 157.5F) {
-         this.mc.options.rightKey.setPressed(true);
+         Input.key(this.mc.options.rightKey, true);
       }
 
       if (var6 < -22.5F && var6 > -157.5F) {
-         this.mc.options.leftKey.setPressed(true);
+         Input.key(this.mc.options.leftKey, true);
       }
 
       Input.sneak(this.mc, true, this.ticks);
@@ -2379,19 +2383,19 @@ public final class BuildController {
 
       float var7 = MotionMath.wrap(MotionMath.yaw(var3, var5) - this.mc.player.getYaw());
       if (Math.abs(var7) < 67.5F) {
-         this.mc.options.forwardKey.setPressed(true);
+         Input.key(this.mc.options.forwardKey, true);
       }
 
       if (Math.abs(var7) > 112.5F) {
-         this.mc.options.backKey.setPressed(true);
+         Input.key(this.mc.options.backKey, true);
       }
 
       if (var7 > 22.5F && var7 < 157.5F) {
-         this.mc.options.rightKey.setPressed(true);
+         Input.key(this.mc.options.rightKey, true);
       }
 
       if (var7 < -22.5F && var7 > -157.5F) {
-         this.mc.options.leftKey.setPressed(true);
+         Input.key(this.mc.options.leftKey, true);
       }
 
       Input.sneak(this.mc, true, this.ticks);
@@ -3135,9 +3139,20 @@ public final class BuildController {
          if (var1 == Items.AIR) {
             return false;
          } else {
+            // 3.0.122 (người dùng: "trong người có khối kê mà log báo không có rồi vào order lấy"): chỉ đếm khi túi đồ đã khớp với
+            // server (vừa đóng menu / vừa SWAP thì túi client có thể sai), và đếm cả tay trái
+            if (!InventoryAccess.synced(this.mc)) {
+               return false;
+            }
+
             int var2 = InventoryAccess.count(this.mc, var1);
+            if (this.mc.player.getOffHandStack().isOf(var1)) {
+               var2 += this.mc.player.getOffHandStack().getCount();
+            }
+
             boolean var3 = var2 <= 0 && this.ticks - this.scaffoldWantAt < 1200;
-            boolean var4 = var2 < 16 && this.ticks - this.scaffoldUsedAt < 2400;
+            // 3.0.122: lấy trước khi còn < 8 (trước: < 16 → đang có 10–15 khối vẫn bỏ dở để đi Order)
+            boolean var4 = var2 < 8 && this.ticks - this.scaffoldUsedAt < 2400;
             if (!var3 && !var4) {
                return false;
             } else if (this.missing.getOrDefault(var1, 0) > this.ticks) {
@@ -3474,8 +3489,11 @@ public final class BuildController {
                   return;
                }
 
-               this.mc.interactionManager.interactBlock(this.mc.player, Hand.MAIN_HAND, var7);
-               this.mc.player.swingHand(Hand.MAIN_HAND);
+               BlockHitResult clickVar7 = var7;
+               Input.queueUse(this.mc, clickVar7, false, "crafter", () -> {
+                  this.mc.interactionManager.interactBlock(this.mc.player, Hand.MAIN_HAND, clickVar7);
+                  this.mc.player.swingHand(Hand.MAIN_HAND);
+               });
             }
 
             this.status = "Mở crafter @ " + this.crafterPos.toShortString() + " để tắt " + maskLabel(this.crafterMask) + (this.crafterClicks > 1 ? " (bấm lần " + this.crafterClicks + ")" : "");
@@ -4266,8 +4284,11 @@ public final class BuildController {
                         return;
                      }
 
-                     this.mc.interactionManager.interactBlock(this.mc.player, Hand.MAIN_HAND, var5);
-                     this.mc.player.swingHand(Hand.MAIN_HAND);
+                     BlockHitResult clickvar5 = var5;
+                     Input.queueUse(this.mc, clickvar5, false, "ender chest", () -> {
+                        this.mc.interactionManager.interactBlock(this.mc.player, Hand.MAIN_HAND, clickvar5);
+                        this.mc.player.swingHand(Hand.MAIN_HAND);
+                     });
                      this.stashNext(ST_WAIT_PLACED);
                   } else if (this.stashStepTicks > 80) {
                      this.stashFail("không ngắm được mặt trên khối để đặt ender chest", 600);
@@ -4311,8 +4332,11 @@ public final class BuildController {
                         return;
                      }
 
-                     this.mc.interactionManager.interactBlock(this.mc.player, Hand.MAIN_HAND, var8);
-                     this.mc.player.swingHand(Hand.MAIN_HAND);
+                     BlockHitResult clickvar8 = var8;
+                     Input.queueUse(this.mc, clickvar8, false, "ender chest", () -> {
+                        this.mc.interactionManager.interactBlock(this.mc.player, Hand.MAIN_HAND, clickvar8);
+                        this.mc.player.swingHand(Hand.MAIN_HAND);
+                     });
                      this.stashNext(ST_WAIT_OPEN);
                   }
                }
@@ -4412,12 +4436,12 @@ public final class BuildController {
 
                if (var15.getBlock().asItem() != enderChestItem()) {
                   // 3.0.97: client thấy đã vỡ chưa chắc server đã phá (lag) → sang bước xác nhận
-                  this.mc.options.attackKey.setPressed(false);
+                  Input.key(this.mc.options.attackKey, false);
                   this.mining = null;
                   this.forceTool = null;
                   this.stashNext(ST_CONFIRM);
                } else if (this.stashStepTicks > 240) {
-                  this.mc.options.attackKey.setPressed(false);
+                  Input.key(this.mc.options.attackKey, false);
                   this.mining = null;
                   this.forceTool = null;
                   AutoBuildMod.LOGGER.info("[AutoBuild] Ender chest @ {}: 12 giây chưa đập được → để lại, lát đứng gần sẽ đập tiếp", this.stashPos.toShortString());
@@ -4492,7 +4516,7 @@ public final class BuildController {
       this.stashStep = -1;
       this.mining = null;
       this.forceTool = null;
-      this.mc.options.attackKey.setPressed(false);
+      Input.key(this.mc.options.attackKey, false);
       Input.sneak(this.mc, false, this.ticks);
       if (this.mc.currentScreen != null && this.mc.player != null) {
          this.mc.player.closeHandledScreen();
@@ -8591,19 +8615,19 @@ this.failures.remove(var1.pos());
       } else {
          float var6 = MotionMath.wrap(MotionMath.yaw(var2, var4) - this.mc.player.getYaw());
          if (Math.abs(var6) < 67.5F) {
-            this.mc.options.forwardKey.setPressed(true);
+            Input.key(this.mc.options.forwardKey, true);
          }
 
          if (Math.abs(var6) > 112.5F) {
-            this.mc.options.backKey.setPressed(true);
+            Input.key(this.mc.options.backKey, true);
          }
 
          if (var6 > 22.5F && var6 < 157.5F) {
-            this.mc.options.rightKey.setPressed(true);
+            Input.key(this.mc.options.rightKey, true);
          }
 
          if (var6 < -22.5F && var6 > -157.5F) {
-            this.mc.options.leftKey.setPressed(true);
+            Input.key(this.mc.options.leftKey, true);
          }
 
          return false;
@@ -8789,7 +8813,7 @@ this.failures.remove(var1.pos());
                      if (this.rotationSent() && this.paceOk() && !this.ackWait(var7.down()) && this.mc.player.isInSneakingPose()) {
                         this.pitJumped = true;
                         this.pitJumpAt = this.ticks;
-                        this.mc.options.jumpKey.setPressed(true);
+                        Input.key(this.mc.options.jumpKey, true);
                      }
                   } else {
                      this.lookAt(this.mc.player.getYaw(), 90.0F);
@@ -9116,7 +9140,7 @@ this.failures.remove(var1.pos());
 
    private void stopEat(String var1) {
       if (this.eating) {
-         this.mc.options.useKey.setPressed(false);
+         Input.key(this.mc.options.useKey, false);
          this.eating = false;
          this.lastProgress = this.ticks;
          this.aim = null;
@@ -9168,7 +9192,7 @@ this.failures.remove(var1.pos());
             this.stopEat("hết thời gian");
             return false;
          } else if (!this.mc.player.getMainHandStack().isOf(this.eatItem)) {
-            this.mc.options.useKey.setPressed(false);
+            Input.key(this.mc.options.useKey, false);
             if (InventoryAccess.count(this.mc, this.eatItem) == 0) {
                this.stopEat("hết đồ ăn");
                return false;
@@ -9179,7 +9203,7 @@ this.failures.remove(var1.pos());
             }
          } else {
             this.mc.player.setPitch(-90.0F);
-            this.mc.options.useKey.setPressed(true);
+            Input.key(this.mc.options.useKey, true);
             this.status = "Đang ăn " + this.eatItem.getName().getString();
             return true;
          }
@@ -9232,7 +9256,7 @@ this.failures.remove(var1.pos());
             if (this.snowDigging) {
                this.snowDigging = false;
                this.mining = null;
-               this.mc.options.attackKey.setPressed(false);
+               Input.key(this.mc.options.attackKey, false);
             }
 
             this.snowTicks = 0;
@@ -9257,7 +9281,7 @@ this.failures.remove(var1.pos());
                // chỉ chạm mép ô tuyết bên cạnh → lùi về giữa ô đang đứng
                Input.sneak(this.mc, false, this.ticks);
                this.mc.player.setYaw(MotionMath.yaw((double)var2.getX() + 0.5 - this.mc.player.getX(), (double)var2.getZ() + 0.5 - this.mc.player.getZ()));
-               this.mc.options.forwardKey.setPressed(true);
+               Input.key(this.mc.options.forwardKey, true);
                return true;
             } else {
                Direction var6 = null;
@@ -9286,13 +9310,13 @@ this.failures.remove(var1.pos());
                if (var6 != null && this.snowTicks <= 15) {
                   Vec3d var18 = Vec3d.ofCenter(var2.offset(var6));
                   this.mc.player.setYaw(MotionMath.yaw(var18.x - this.mc.player.getX(), var18.z - this.mc.player.getZ()));
-                  this.mc.options.forwardKey.setPressed(true);
-                  this.mc.options.jumpKey.setPressed(true);
+                  Input.key(this.mc.options.forwardKey, true);
+                  Input.key(this.mc.options.jumpKey, true);
                   return true;
                } else {
                   // bước ra không được → bỏ ô tuyết đang nhốt người: ô ở đầu trước (tia nhìn xuất phát từ trong đó), rồi ô ở chân
-                  this.mc.options.forwardKey.setPressed(false);
-                  this.mc.options.jumpKey.setPressed(false);
+                  Input.key(this.mc.options.forwardKey, false);
+                  Input.key(this.mc.options.jumpKey, false);
                   Input.sneak(this.mc, false, this.ticks);
                   BlockPos var19 = var5 ? var3 : var2;
                   if (InventoryAccess.count(this.mc, Items.BUCKET) > 0) {
@@ -9305,11 +9329,13 @@ this.failures.remove(var1.pos());
                      if (this.rotationSent() && this.ticks - this.snowScoopAt > 10 && this.unacked == 0 && InventoryAccess.synced(this.mc)) {
                         this.snowScoopAt = this.ticks;
                         this.clickTick = this.ticks;
-                        Item var41 = this.mc.player.getMainHandStack().getItem();
-                        int var42 = this.mc.player.getMainHandStack().getCount();
-                        this.mc.interactionManager.interactItem(this.mc.player, Hand.MAIN_HAND);
-                        this.qualityBucketUsed(var41, var42, "múc tuyết");
-                        this.mc.player.swingHand(Hand.MAIN_HAND);
+                        Input.queueUse(this.mc, null, false, "múc tuyết", () -> {
+                           Item var41 = this.mc.player.getMainHandStack().getItem();
+                           int var42 = this.mc.player.getMainHandStack().getCount();
+                           this.mc.interactionManager.interactItem(this.mc.player, Hand.MAIN_HAND);
+                           this.qualityBucketUsed(var41, var42, "múc tuyết");
+                           this.mc.player.swingHand(Hand.MAIN_HAND);
+                        });
                         AutoBuildMod.LOGGER.info("[AutoBuild] Kẹt trong Powder Snow @ {} → múc ô tuyết bằng xô rỗng để thoát", var19.toShortString());
                      }
 
@@ -9894,11 +9920,11 @@ this.failures.remove(var1.pos());
                var70 = 1;
             }
 
-            this.mc.options.forwardKey.setPressed(var70 > 0);
-            this.mc.options.backKey.setPressed(var70 < 0);
-            this.mc.options.leftKey.setPressed(false);
-            this.mc.options.rightKey.setPressed(false);
-            this.mc.options.jumpKey.setPressed(false);
+            Input.key(this.mc.options.forwardKey, var70 > 0);
+            Input.key(this.mc.options.backKey, var70 < 0);
+            Input.key(this.mc.options.leftKey, false);
+            Input.key(this.mc.options.rightKey, false);
+            Input.key(this.mc.options.jumpKey, false);
             this.landBrakeCell = var2;
             this.landBrakeX = var4;
             this.landBrakeZ = var5;
@@ -9923,9 +9949,9 @@ this.failures.remove(var1.pos());
       double var47 = var27 + var29 * 2.0;
       boolean var49 = Math.abs(var47) > 0.05 && var47 * var45 < 0.0;
       boolean var50 = Math.abs(var47) > 0.05 && var47 * var45 > 0.0;
-      this.mc.options.leftKey.setPressed(var49);
-      this.mc.options.rightKey.setPressed(var50);
-      this.mc.options.jumpKey.setPressed(false);
+      Input.key(this.mc.options.leftKey, var49);
+      Input.key(this.mc.options.rightKey, var50);
+      Input.key(this.mc.options.jumpKey, false);
       boolean var51 = this.mc.player.isSneaking();
       // cú nhảy (tick sau) có chạy nhanh không: đang giữ W + phím chạy thì tick sau chạy nhanh
       boolean var15 = var12 && !var51;
@@ -9955,8 +9981,8 @@ this.failures.remove(var1.pos());
          double var60 = var6 + Math.min(0.0, var8) * 1.2;
          if (var60 > 0.0 && var6 > -0.1 && ++this.parkourBackTicks < 25) {
             this.status = "Lùi lấy đà (S) trong ô để nhảy qua " + var31;
-            this.mc.options.forwardKey.setPressed(false);
-            this.mc.options.backKey.setPressed(true);
+            Input.key(this.mc.options.forwardKey, false);
+            Input.key(this.mc.options.backKey, true);
             return;
          }
 
@@ -9964,11 +9990,11 @@ this.failures.remove(var1.pos());
          this.parkourBackTicks = 0;
       }
 
-      this.mc.options.backKey.setPressed(false);
+      Input.key(this.mc.options.backKey, false);
       if (var59) {
          this.status = "Thôi chạy nhanh trước " + var31;
-         this.mc.options.forwardKey.setPressed(false);
-         this.mc.options.backKey.setPressed(var41);
+         Input.key(this.mc.options.forwardKey, false);
+         Input.key(this.mc.options.backKey, var41);
          return;
       }
 
@@ -9979,10 +10005,10 @@ this.failures.remove(var1.pos());
       boolean var61 = var6 >= var80 && var43 && !var51 && Math.abs(var27) <= 0.3 && Math.abs(var29) <= 0.08;
 
       if (var61) {
-         this.mc.options.forwardKey.setPressed(true);
-         this.mc.options.jumpKey.setPressed(true);
-         this.mc.options.leftKey.setPressed(false);
-         this.mc.options.rightKey.setPressed(false);
+         Input.key(this.mc.options.forwardKey, true);
+         Input.key(this.mc.options.jumpKey, true);
+         Input.key(this.mc.options.leftKey, false);
+         Input.key(this.mc.options.rightKey, false);
          this.status = "Nhảy qua " + var31;
          if (this.ticks - this.parkourSaidAt > 40) {
             this.parkourSaidAt = this.ticks;
@@ -10009,8 +10035,8 @@ this.failures.remove(var1.pos());
          this.parkourRunups++;
          this.parkourRunupFor = this.pathIndex;
          this.parkourBackTicks = 0;
-         this.mc.options.forwardKey.setPressed(false);
-         this.mc.options.backKey.setPressed(true);
+         Input.key(this.mc.options.forwardKey, false);
+         Input.key(this.mc.options.backKey, true);
          this.status = "Lùi lấy đà (S) trong ô để nhảy qua " + var31;
          if (this.ticks - this.parkourSaidAt > 40) {
             this.parkourSaidAt = this.ticks;
@@ -10034,7 +10060,7 @@ this.failures.remove(var1.pos());
          }
       } else {
          // chưa tới lúc nhảy: đi tiếp về phía mép, vừa đi vừa về giữa làn
-         this.mc.options.forwardKey.setPressed(true);
+         Input.key(this.mc.options.forwardKey, true);
          this.status = "Lấy đà nhảy qua " + var31;
       }
    }
@@ -10161,12 +10187,12 @@ this.failures.remove(var1.pos());
          if (!var5 && Math.abs(var6) < 1.2 && var8 > 0.02) {
             // 3.0.103 (người dùng): chạm đích là thả HẾT phím cho khỏi trôi; chỉ bấm S khi trượt tiếp sẽ ra khỏi khối
             this.mc.player.setYaw(MotionMath.yaw((double)var3, (double)var4));
-            this.mc.options.forwardKey.setPressed(false);
-            this.mc.options.leftKey.setPressed(false);
-            this.mc.options.rightKey.setPressed(false);
-            this.mc.options.jumpKey.setPressed(false);
+            Input.key(this.mc.options.forwardKey, false);
+            Input.key(this.mc.options.leftKey, false);
+            Input.key(this.mc.options.rightKey, false);
+            Input.key(this.mc.options.jumpKey, false);
             boolean var10 = var6 + var8 * 1.2 > 0.35;
-            this.mc.options.backKey.setPressed(var10);
+            Input.key(this.mc.options.backKey, var10);
             this.status = var10 ? "Vừa chạm khối đích → hãm (S) để không trượt quá" : "Vừa chạm khối đích → thả hết phím";
          } else {
             this.landBrakeUntil = -1000;
@@ -10317,7 +10343,7 @@ this.failures.remove(var1.pos());
          if (this.idleHits++ == 0) {
             this.standUntil = this.ticks + 12;
             if (this.mc.player.isOnGround()) {
-               this.mc.options.jumpKey.setPressed(true);
+               Input.key(this.mc.options.jumpKey, true);
             }
 
             this.beginGoals(this.cleanupMode);
@@ -10346,7 +10372,7 @@ this.failures.remove(var1.pos());
          } else {
             // rồi lùi ngược hướng vừa đi ~1 ô (nhìn vẫn theo hướng cũ, bấm S)
             this.status = "Bị giật lại → lùi ra rồi đi tiếp";
-            this.mc.options.backKey.setPressed(true);
+            Input.key(this.mc.options.backKey, true);
             if (this.hazardNear()) {
                Input.sneak(this.mc, true, this.ticks);
             }
@@ -10568,7 +10594,8 @@ this.failures.remove(var1.pos());
 
                      // 3.0.82: đang bay (nhảy/rơi) mà đã vượt qua điểm tới → KHÔNG quay ngoắt 180° giữa không trung
                      boolean var46 = !this.mc.player.isOnGround() && Math.abs(MotionMath.wrap(var20 - this.mc.player.getYaw())) > 60.0F;
-                     if (!var19) {
+                     // 3.0.122: vừa bấm chuột phải (cú bấm còn chờ game xử lý / gói góc nhìn chưa đi) → chưa quay đầu
+                     if (!var19 && this.ticks >= this.placeLockUntil && !Input.usePending()) {
                         if (var3 > 0.25 && !var46) {
                            this.mc.player.setYaw(this.mc.player.getYaw() + MotionMath.wrap(var20 - this.mc.player.getYaw()));
                         }
@@ -10589,23 +10616,23 @@ this.failures.remove(var1.pos());
                         this.brake();
                      } else {
                         if (Math.abs(var21) < 67.5F) {
-                           this.mc.options.forwardKey.setPressed(true);
+                           Input.key(this.mc.options.forwardKey, true);
                         }
 
                         if (Math.abs(var21) > 112.5F) {
-                           this.mc.options.backKey.setPressed(true);
+                           Input.key(this.mc.options.backKey, true);
                         }
 
                         if (var21 > 22.5F && var21 < 157.5F) {
-                           this.mc.options.rightKey.setPressed(true);
+                           Input.key(this.mc.options.rightKey, true);
                         }
 
                         if (var21 < -22.5F && var21 > -157.5F) {
-                           this.mc.options.leftKey.setPressed(true);
+                           Input.key(this.mc.options.leftKey, true);
                         }
 
                         if ((double)var18.y() > this.mc.player.getY() + 0.6 && this.mc.player.isOnGround() && var40 == 0) {
-                           this.mc.options.jumpKey.setPressed(true);
+                           Input.key(this.mc.options.jumpKey, true);
                         }
 
                         boolean var22 = this.path.size() - this.pathIndex > 4;
@@ -10635,7 +10662,7 @@ this.failures.remove(var1.pos());
                               && !this.mc.player.isSneaking()
                               && this.mc.player.getVelocity().horizontalLengthSquared() > 0.04) {
                               // 3.0.92: chỉ nhảy khi ĐANG chạy nhanh thật (sprint) và đã có đà — nhảy lúc đi thường không nhanh hơn
-                              this.mc.options.jumpKey.setPressed(true);
+                              Input.key(this.mc.options.jumpKey, true);
                            }
                         }
 
@@ -10660,7 +10687,7 @@ this.failures.remove(var1.pos());
                         // không ngồi trong nước (ngồi thì không đủ đà, luôn bị nước đẩy). Bước kế tiếp thấp hơn thì không nhảy.
                         boolean var47 = this.inWaterNow();
                         if (var47 && !((double)var18.y() < this.mc.player.getY() - 0.6)) {
-                           this.mc.options.jumpKey.setPressed(true);
+                           Input.key(this.mc.options.jumpKey, true);
                            Input.forceSneak(this.mc, false, this.ticks);
                         }
 
@@ -10672,7 +10699,7 @@ this.failures.remove(var1.pos());
 
                         this.lastPosition = this.mc.player.getPos();
                         if (this.stuckTicks >= 10 && this.stuckTicks % 10 == 0 && this.mc.player.isOnGround() && var40 == 0) {
-                           this.mc.options.jumpKey.setPressed(true);
+                           Input.key(this.mc.options.jumpKey, true);
                         }
 
                         double var23 = (double)Math.min(var6.y(), var18.y()) - this.mc.player.getY();
@@ -11240,7 +11267,9 @@ this.failures.remove(var1.pos());
    private int maxUnacked() {
       int var1 = this.pingMs();
       // 3.0.96: cho gửi trước nhiều khối hơn khi ping cao (server xử lý gói tin theo đúng thứ tự)
-      return var1 <= 120 ? 4 : (var1 <= 300 ? 3 : 2);
+      // 3.0.122 (người dùng: đặt liên tục, kiểm sau): cho đặt trước nhiều khối hơn; khối bám vào khối chưa được xác nhận vẫn phải chờ
+      // (aim: "mặt click là khối server chưa xác nhận"), khối mất thì vòng kiểm tra đặt lại
+      return var1 <= 120 ? 6 : (var1 <= 300 ? 5 : 4);
    }
 
    private int pingDelayTicks() {
@@ -11263,21 +11292,24 @@ this.failures.remove(var1.pos());
          return false;
       }
 
-      this.placeLockUntil = this.ticks + 2;
+      this.placeLockUntil = this.ticks + 3;
       this.wrongRefuse = 0;
-      Item var4 = this.mc.player.getMainHandStack().getItem();
-      int var5 = this.mc.player.getMainHandStack().getCount();
-      ActionResult var2 = this.mc.interactionManager.interactBlock(this.mc.player, Hand.MAIN_HAND, var1);
-      if (var2.isAccepted()) {
-         this.mc.player.swingHand(Hand.MAIN_HAND);
-      } else if (BucketRules.shopBucket(this.mc.player.getMainHandStack().getItem())) {
-         ActionResult var3 = this.mc.interactionManager.interactItem(this.mc.player, Hand.MAIN_HAND);
-         if (var3 != null && var3.isAccepted()) {
+      // 3.0.122: bấm chuột phải thật; thao tác chạy lúc game xử lý cú bấm (đầu tick sau, trước gói góc nhìn — đúng thứ tự vanilla)
+      Input.queueUse(this.mc, var1, true, "đặt khối @ " + var1.getBlockPos().offset(var1.getSide()).toShortString(), () -> {
+         Item var4 = this.mc.player.getMainHandStack().getItem();
+         int var5 = this.mc.player.getMainHandStack().getCount();
+         ActionResult var2 = this.mc.interactionManager.interactBlock(this.mc.player, Hand.MAIN_HAND, var1);
+         if (var2.isAccepted()) {
             this.mc.player.swingHand(Hand.MAIN_HAND);
+         } else if (BucketRules.shopBucket(this.mc.player.getMainHandStack().getItem())) {
+            ActionResult var3 = this.mc.interactionManager.interactItem(this.mc.player, Hand.MAIN_HAND);
+            if (var3 != null && var3.isAccepted()) {
+               this.mc.player.swingHand(Hand.MAIN_HAND);
+            }
          }
-      }
 
-      this.qualityBucketUsed(var4, var5, "đổ xô");
+         this.qualityBucketUsed(var4, var5, "đổ xô");
+      });
       return true;
    }
 
@@ -11356,7 +11388,7 @@ this.failures.remove(var1.pos());
                   this.supportQueue.clear();
                   this.selfPillarBase = null;
                   this.job = null;
-                  this.mc.options.jumpKey.setPressed(false);
+                  Input.key(this.mc.options.jumpKey, false);
                   this.beginScan();
                   return;
                }
@@ -11921,14 +11953,17 @@ this.failures.remove(var1.pos());
             this.spoofHit = null;
             return false;
          } else {
-            this.placeLockUntil = this.ticks + 2;
-            ActionResult var4 = this.mc.interactionManager.interactBlock(this.mc.player, Hand.MAIN_HAND, var3);
+            this.placeLockUntil = this.ticks + 3;
+            // 3.0.122: chuột phải thật (xem Input.queueUse); góc gửi giữ nguyên tới hết tick sau (placeLockUntil)
+            Input.queueUse(this.mc, var3, false, "đặt khối (góc gửi) @ " + var1.pos().toShortString(), () -> {
+               ActionResult var4 = this.mc.interactionManager.interactBlock(this.mc.player, Hand.MAIN_HAND, var3);
+               if (var4.isAccepted()) {
+                  this.mc.player.swingHand(Hand.MAIN_HAND);
+               }
+            });
             this.spoofHit = null;
             this.spoofPlaced.add(var1.pos().toImmutable());
             this.clicked(var1.pos());
-            if (var4.isAccepted()) {
-               this.mc.player.swingHand(Hand.MAIN_HAND);
-            }
 
             this.sneakHeld = var2.aim().sneak();
             this.clickTick = this.ticks;
@@ -12618,14 +12653,20 @@ this.failures.remove(var1.pos());
    }
 
     private boolean breakBlock(BlockState actual) {
-        mc.options.attackKey.setPressed(false);
-        if (mining == null || actual.isReplaceable()) { qualityAttackPos = null; return true; }
+        // 3.0.122: KHÔNG nhả chuột trái ở đầu mỗi lần gọi nữa. Bản cũ nhả rồi mới bấm lại; chỉ cần 1 tick chưa kịp gửi góc nhìn
+        // (rotationSent) hay ngắm lệch là chuột bị nhả → game huỷ đập (gửi ABORT) → vết nứt mất, server tính lại từ đầu
+        // ("client thấy vỡ nhưng server chưa phá"). Giờ giữ chuột như người thật: đã giữ trên đúng khối thì giữ tiếp.
+        boolean holding = mining != null && mining.equals(qualityAttackPos) && mc.options.attackKey.isPressed();
+        if (mining == null || actual.isReplaceable()) { stopAttack(); return true; }
         if (tntBreakRisk(mining) != null) {
-            qualityAttackPos = null;
+            stopAttack();
             if (mc.interactionManager.isBreakingBlock()) mc.interactionManager.cancelBlockBreaking();
             status = "An toàn TNT: không đập " + actual.getBlock().getName().getString() + " @ " + mining.toShortString();
             return true;
         }
+        // 3.0.122 (người dùng): khối có nước bên trong (lá, slab, thang… waterlogged) → múc nước bằng xô rỗng TRƯỚC khi đập,
+        // đập thẳng thì nước tràn ra làm hỏng công trình
+        if (drainBeforeBreak(actual)) return true;
         brokeSeenPos = null;
         Item tool = null; float speed = 1F;
         for (int slot = 0; slot < 36; slot++) {
@@ -12636,25 +12677,142 @@ this.failures.remove(var1.pos());
         }
         if (forceTool != null && InventoryAccess.count(mc, forceTool) > 0) tool = forceTool;
         if (tool != null && !mc.player.getMainHandStack().isOf(tool)) {
-            qualityAttackPos = null;
+            stopAttack();
             if (!InventoryAccess.equip(mc, tool, config.workingHotbarSlot)) return false;
         }
-        if (!InventoryAccess.synced(mc)) return true;
+        if (!InventoryAccess.synced(mc)) { if (!holding) stopAttack(); else keepAttack(); return true; }
+        BlockHitResult live = PlacementSolver.ray(mc, reach());
+        boolean liveOn = live.getType() == HitResult.Type.BLOCK && live.getBlockPos().equals(mining)
+            && mc.player.getEyePos().squaredDistanceTo(live.getPos()) <= reach() * reach();
+        if (holding && liveOn && Input.canHoldAttack(mc)) {
+            // đang đập đúng khối: không xoay đầu theo điểm ngắm mới (xoay liên tục làm góc gửi lên server đổi mỗi tick)
+            keepAttack();
+            return true;
+        }
         if (!mining.equals(minePointPos) || minePoint == null || !rayHits(mc.player.getEyePos(), minePoint, mining)) {
             minePoint = visiblePoint(mining); minePointPos = mining.toImmutable();
         }
-        if (minePoint == null) { qualityAttackPos = null; return true; }
+        if (minePoint == null) { stopAttack(); return true; }
         Vec3d delta = minePoint.subtract(mc.player.getEyePos());
         lookAt(MotionMath.yaw(delta.x, delta.z), MotionMath.pitch(delta.x, delta.y, delta.z));
-        BlockHitResult live = PlacementSolver.ray(mc, reach());
+        live = PlacementSolver.ray(mc, reach());
         if (!rotationSent() || live.getType() != HitResult.Type.BLOCK || !live.getBlockPos().equals(mining)
             || mc.player.getEyePos().squaredDistanceTo(live.getPos()) > reach() * reach()
-            || !Input.canHoldAttack(mc)) return true;
-        // Use MinecraftClient.handleBlockBreaking through its ordinary attack key.
-        // Do not inject updateBlockBreakingProgress or hide/reset breakingBlock.
+            || !Input.canHoldAttack(mc) || Input.usePending()) {
+            if (!holding) stopAttack();
+            return true;
+        }
+        // Bấm chuột trái thật (Input.flush → KeyBinding.setKeyPressed + onKeyPressed): game tự doAttack + handleBlockBreaking.
         mc.crosshairTarget = live;
-        qualityAttackPos = mining.toImmutable(); qualityAttackTick = ticks;
-        mc.options.attackKey.setPressed(true);
+        if (!holding) AutoBuildMod.LOGGER.debug("[AutoBuild] Giữ chuột trái đập {} @ {}", actual.getBlock().getName().getString(), mining.toShortString());
+        qualityAttackPos = mining.toImmutable();
+        keepAttack();
+        return true;
+    }
+
+    /** 3.0.122: giữ chuột trái thêm 1 tick trên khối đang đập */
+    private void keepAttack() {
+        if (qualityAttackPos == null) return;
+        qualityAttackTick = ticks;
+        Input.key(mc.options.attackKey, true);
+    }
+
+    /** 3.0.122: nhả chuột trái hẳn (không giữ tiếp ở cuối tick) */
+    private void stopAttack() {
+        qualityAttackPos = null;
+        Input.key(mc.options.attackKey, false);
+    }
+
+    // ===== 3.0.122: múc nước khỏi khối trước khi đập =====
+    private BlockPos drainPos;
+    private int drainTries;
+    private int drainClickAt = -1000;
+    private int drainSaidAt = -1000;
+    /** cần mua xô rỗng (SurvivalSupplies) */
+    boolean needEmptyBucket;
+    private final Map<BlockPos, Integer> drainGiveUp = new HashMap<>();
+
+    private static boolean waterInside(BlockState state) {
+        return state != null && state.contains(Properties.WATERLOGGED) && state.get(Properties.WATERLOGGED);
+    }
+
+    /** true = đang lo múc nước (không đập trong tick này) */
+    private boolean drainBeforeBreak(BlockState actual) {
+        if (!waterInside(actual)) {
+            if (mining != null && mining.equals(drainPos)) {
+                AutoBuildMod.LOGGER.info("[AutoBuild] Đã múc hết nước khỏi {} @ {}", actual.getBlock().getName().getString(), drainPos.toShortString());
+                drainPos = null;
+                drainTries = 0;
+                InventoryAccess.markDirty(mc, "múc nước khỏi khối");
+                // múc xong mà khối đã đúng bản vẽ (vd. lá thừa nước) → không đập nữa
+                Target wanted = plan == null ? null : plan.at(mining);
+                if (wanted != null && done(actual, wanted.state()) && repairing) {
+                    stopAttack();
+                    endSideMining();
+                    return true;
+                }
+            }
+            return false;
+        }
+        stopAttack();
+        if (mc.interactionManager.isBreakingBlock()) mc.interactionManager.cancelBlockBreaking();
+        if (!mining.equals(drainPos)) {
+            drainPos = mining.toImmutable();
+            drainTries = 0;
+            AutoBuildMod.LOGGER.info("[AutoBuild] {} @ {} có nước bên trong → múc nước bằng xô rỗng trước, rồi mới đập (không làm tràn nước)",
+                actual.getBlock().getName().getString(), drainPos.toShortString());
+        }
+        if (InventoryAccess.count(mc, Items.BUCKET) == 0) {
+            needEmptyBucket = true;
+            status = "Cần xô rỗng để múc nước ở " + mining.toShortString() + " → mua ở /shop";
+            if (ticks - drainSaidAt > 400) {
+                drainSaidAt = ticks;
+                AutoBuildMod.LOGGER.info("[AutoBuild] Không có xô rỗng để múc nước ở {} → mua xô ở /shop, chưa đập khối này", mining.toShortString());
+            }
+            return true;
+        }
+        if (drainTries >= 6) {
+            if (drainGiveUp.merge(mining.toImmutable(), 1, Integer::sum) == 1)
+                AutoBuildMod.LOGGER.info("[AutoBuild] Múc 6 lần mà {} vẫn còn nước → không đập (nước sẽ tràn), để lại", mining.toShortString());
+            status = "Không múc được nước ở " + mining.toShortString() + " → không đập";
+            if (repairing || sweeping) {
+                sweepSkip.add(mining.toImmutable());
+                sweepNow.remove(mining);
+                endSideMining();
+            }
+            return true;
+        }
+        if (!mc.player.getMainHandStack().isOf(Items.BUCKET)) {
+            InventoryAccess.equip(mc, Items.BUCKET, config.workingHotbarSlot);
+            status = "Cầm xô rỗng để múc nước";
+            return true;
+        }
+        if (!InventoryAccess.synced(mc)) return true;
+        Vec3d point = visiblePoint(mining);
+        if (point == null) point = Vec3d.ofCenter(mining);
+        Vec3d delta = point.subtract(mc.player.getEyePos());
+        lookAt(MotionMath.yaw(delta.x, delta.z), MotionMath.pitch(delta.x, delta.y, delta.z));
+        status = "Múc nước khỏi " + actual.getBlock().getName().getString() + " @ " + mining.toShortString();
+        if (!rotationSent() || ticks - drainClickAt < 8 + latencyTicks() * 2 || unacked > 0 || Input.usePending()) return true;
+        BlockPos at = mining.toImmutable();
+        // xô rỗng tự nhắm theo hướng nhìn (BucketItem.use) → kiểm tra tia nước trúng đúng ô
+        BlockHitResult fluidRay = mc.world.raycast(new RaycastContext(mc.player.getEyePos(),
+            mc.player.getEyePos().add(mc.player.getRotationVec(1F).multiply(mc.player.getBlockInteractionRange())),
+            ShapeType.OUTLINE, FluidHandling.SOURCE_ONLY, mc.player));
+        if (fluidRay.getType() != HitResult.Type.BLOCK || !fluidRay.getBlockPos().equals(at)) {
+            status = "Ngắm xô vào " + at.toShortString();
+            return true;
+        }
+        drainClickAt = ticks;
+        drainTries++;
+        clickTick = ticks;
+        Input.queueUse(mc, null, false, "múc nước khỏi khối @ " + at.toShortString(), () -> {
+            Item before = mc.player.getMainHandStack().getItem();
+            int count = mc.player.getMainHandStack().getCount();
+            ActionResult r = mc.interactionManager.interactItem(mc.player, Hand.MAIN_HAND);
+            if (r != null && r.isAccepted()) mc.player.swingHand(Hand.MAIN_HAND);
+            qualityBucketUsed(before, count, "múc nước khỏi khối");
+        });
         return true;
     }
 
@@ -13273,7 +13431,7 @@ this.failures.remove(var1.pos());
             }
 
             if (this.mc.player.isOnGround()) {
-               this.mc.options.jumpKey.setPressed(true);
+               Input.key(this.mc.options.jumpKey, true);
             }
 
             AutoBuildMod.LOGGER
@@ -13792,7 +13950,7 @@ this.failures.remove(var1.pos());
          this.climbFailUntil = this.ticks + 200;
       }
 
-      this.mc.options.jumpKey.setPressed(false);
+      Input.key(this.mc.options.jumpKey, false);
       this.pillar = false;
       this.pillarFor = null;
       this.pillarJumpIssued = false;
@@ -13821,7 +13979,7 @@ this.failures.remove(var1.pos());
          }
 
          Input.sneak(this.mc, true, this.ticks);
-         this.mc.options.jumpKey.setPressed(false);
+         Input.key(this.mc.options.jumpKey, false);
          if (++this.pillarTicks <= 140 && (this.pillarJumps < 4 || !this.mc.player.isOnGround() || !this.pillarWasAirborne)) {
             if (this.mc.player.isOnGround()) {
                if (this.pillarJumpIssued) {
@@ -13894,7 +14052,7 @@ this.failures.remove(var1.pos());
                         this.pillarLaunchTick = this.ticks;
                         this.pillarJumpIssued = true;
                         this.pillarJumps++;
-                        this.mc.options.jumpKey.setPressed(true);
+                        Input.key(this.mc.options.jumpKey, true);
                         AutoBuildMod.LOGGER
                            .info(
                               "[AutoBuild] Nhảy kê #{} @ {}: chân Y={}, pitch={}, thẳng cột={}",
@@ -14271,7 +14429,7 @@ this.failures.remove(var1.pos());
                );
          }
 
-         this.mc.options.jumpKey.setPressed(false);
+         Input.key(this.mc.options.jumpKey, false);
          this.pillar = false;
          this.pillarFor = null;
          this.pending = null;
@@ -14438,6 +14596,11 @@ this.failures.remove(var1.pos());
                return true;
             } else if (!this.paceOk()) {
                this.gate("chờ server xác nhận (" + this.unacked + "/" + this.maxUnacked() + ")");
+               this.aimInvalidTicks = 0;
+               return true;
+            } else if (Input.usePending()) {
+               // 3.0.122: cú chuột phải trước còn chờ game xử lý (đầu tick sau)
+               this.gate("chờ cú chuột phải trước");
                this.aimInvalidTicks = 0;
                return true;
             } else if (Materials.bucket(this.mc.world.getBlockState(var1.pos()), var1.state()) && !this.bucketReady(var1)) {
@@ -15366,15 +15529,15 @@ this.failures.remove(var1.pos());
             }
 
             this.scoopSrc = null;
-            this.mc.options.useKey.setPressed(false);
+            Input.key(this.mc.options.useKey, false);
             this.target = null;
             this.aim = null;
             this.beginScan();
             return true;
          } else {
             this.status = "Múc lại nước @ " + this.scoopSrc.toShortString();
-            this.mc.options.forwardKey.setPressed(false);
-            this.mc.options.jumpKey.setPressed(false);
+            Input.key(this.mc.options.forwardKey, false);
+            Input.key(this.mc.options.jumpKey, false);
             if (!this.mc.player.getMainHandStack().isOf(Items.BUCKET)) {
                InventoryAccess.equip(this.mc, Items.BUCKET, this.config.workingHotbarSlot);
                return true;
@@ -15385,13 +15548,16 @@ this.failures.remove(var1.pos());
                if (this.rotationSent() && this.mc.player.isOnGround() && this.ticks - this.scoopAt > 8 && this.unacked == 0 && InventoryAccess.synced(this.mc)) {
                   this.scoopAt = this.ticks;
                   this.clickTick = this.ticks;
-                  Item var5 = this.mc.player.getMainHandStack().getItem();
-                  int var6 = this.mc.player.getMainHandStack().getCount();
-                  ActionResult var4 = this.mc.interactionManager.interactItem(this.mc.player, Hand.MAIN_HAND);
-                  this.qualityBucketUsed(var5, var6, "múc nước");
-                  if (var4 != null && var4.isAccepted()) {
-                     this.mc.player.swingHand(Hand.MAIN_HAND);
-                  }
+                  // 3.0.122: chuột phải thật
+                  Input.queueUse(this.mc, null, false, "múc nước @ " + this.scoopSrc.toShortString(), () -> {
+                     Item var5 = this.mc.player.getMainHandStack().getItem();
+                     int var6 = this.mc.player.getMainHandStack().getCount();
+                     ActionResult var4 = this.mc.interactionManager.interactItem(this.mc.player, Hand.MAIN_HAND);
+                     this.qualityBucketUsed(var5, var6, "múc nước");
+                     if (var4 != null && var4.isAccepted()) {
+                        this.mc.player.swingHand(Hand.MAIN_HAND);
+                     }
+                  });
                }
 
                return true;
@@ -15738,7 +15904,7 @@ this.failures.remove(var1.pos());
         String why = placeFails + "/25 lần đặt thất bại (" + reason + " @ " + pos.toShortString() + ")";
         saveDone(true);
         release();
-        mc.options.useKey.setPressed(false);
+        Input.key(mc.options.useKey, false);
         failRelogs++;
         AutoBuildMod.LOGGER.info("[AutoBuild] {} → thoát ra vào lại server", why);
         Reconnector.request(mc, this, why);
@@ -15853,15 +16019,15 @@ this.failures.remove(var1.pos());
       if (this.mc.player.hasVehicle()) {
          // ngồi xe/thuyền → giữ Shift để xuống
          this.autoKeys = true;
-         this.mc.options.sneakKey.setPressed(this.ticks % 20 < 10);
+         Input.key(this.mc.options.sneakKey, this.ticks % 20 < 10);
          this.status = "Đang ngồi trên xe/thuyền → xuống rồi xây tiếp";
          return;
       }
 
       if (this.mc.player.isInLava()) {
          this.autoKeys = true;
-         this.mc.options.jumpKey.setPressed(true);
-         this.mc.options.forwardKey.setPressed(true);
+         Input.key(this.mc.options.jumpKey, true);
+         Input.key(this.mc.options.forwardKey, true);
          this.status = "Rơi vào lava → bơi ra rồi xây tiếp";
          return;
       }
@@ -15869,9 +16035,9 @@ this.failures.remove(var1.pos());
       if (this.autoKeys) {
          // chỉ nhả các phím chính mod vừa giữ (không đụng phím người chơi đang bấm)
          this.autoKeys = false;
-         this.mc.options.jumpKey.setPressed(false);
-         this.mc.options.forwardKey.setPressed(false);
-         this.mc.options.sneakKey.setPressed(false);
+         Input.key(this.mc.options.jumpKey, false);
+         Input.key(this.mc.options.forwardKey, false);
+         Input.key(this.mc.options.sneakKey, false);
       }
 
       if (this.ticks >= this.autoNextAt) {
@@ -16358,7 +16524,7 @@ this.failures.remove(var1.pos());
       } else {
          BlockPos var2 = this.mining.toImmutable();
          String var3 = this.mc.world.getBlockState(var2).getBlock().getName().getString();
-         this.mc.options.attackKey.setPressed(false);
+         this.stopAttack();
          if (this.mc.interactionManager.isBreakingBlock()) {
             this.mc.interactionManager.cancelBlockBreaking();
          }
@@ -16546,7 +16712,7 @@ this.failures.remove(var1.pos());
    }
 
    private void collectGoals() {
-      long var1 = System.nanoTime() + 3000000L;
+      long var1 = System.nanoTime() + 8000000L;
       if (this.tickDeadline > 0L) {
          var1 = Math.min(var1, this.tickDeadline);
       }
@@ -16914,10 +17080,10 @@ this.failures.remove(var1.pos());
          double var20 = Math.toRadians((double)this.mc.player.getYaw());
          double var22 = var11 * -Math.sin(var20) + var13 * Math.cos(var20);
          double var24 = var11 * Math.cos(var20) + var13 * Math.sin(var20);
-         this.mc.options.forwardKey.setPressed(var22 > 0.38 * var18);
-         this.mc.options.backKey.setPressed(var22 < -0.38 * var18);
-         this.mc.options.leftKey.setPressed(var24 > 0.38 * var18);
-         this.mc.options.rightKey.setPressed(var24 < -0.38 * var18);
+         Input.key(this.mc.options.forwardKey, var22 > 0.38 * var18);
+         Input.key(this.mc.options.backKey, var22 < -0.38 * var18);
+         Input.key(this.mc.options.leftKey, var24 > 0.38 * var18);
+         Input.key(this.mc.options.rightKey, var24 < -0.38 * var18);
       }
    }
 
@@ -17094,7 +17260,7 @@ this.failures.remove(var1.pos());
                if (var12 * var12 + var14 * var14 < 0.25) {
                   this.holdAt((double)var7.getX() + 0.5, (double)var7.getZ() + 0.5);
                } else {
-                  this.mc.options.forwardKey.setPressed(true);
+                  Input.key(this.mc.options.forwardKey, true);
                }
 
                this.status = "Lội sang chỗ đặt bậc " + this.wsStand.toShortString();
@@ -17181,8 +17347,8 @@ this.failures.remove(var1.pos());
                Input.forceSneak(this.mc, false, this.ticks);
                this.mc.player.setYaw(this.mc.player.getYaw() + MotionMath.wrap(this.flowYaw(var20, var22) - this.mc.player.getYaw()));
                this.mc.player.setPitch(20.0F);
-               this.mc.options.forwardKey.setPressed(true);
-               this.mc.options.jumpKey.setPressed(this.mc.player.getY() < (double)this.wsPos.getY() + 0.9);
+               Input.key(this.mc.options.forwardKey, true);
+               Input.key(this.mc.options.jumpKey, this.mc.player.getY() < (double)this.wsPos.getY() + 0.9);
                this.status = "Trèo lên bậc kê " + this.wsPos.toShortString();
                return true;
             }
@@ -17211,8 +17377,8 @@ this.failures.remove(var1.pos());
             // không thấy ô khô: bơi/nhảy theo hướng đang nhìn, đổi hướng mỗi 1,5 giây
             float var3 = (float)((this.ticks - this.escStartTick) / 30 * 90);
             this.mc.player.setYaw(var3);
-            this.mc.options.forwardKey.setPressed(true);
-            this.mc.options.jumpKey.setPressed(true);
+            Input.key(this.mc.options.forwardKey, true);
+            Input.key(this.mc.options.jumpKey, true);
             this.status = "Kẹt → thử bơi/nhảy ra";
             return true;
          } else {
@@ -17230,7 +17396,7 @@ this.failures.remove(var1.pos());
             } else {
                this.mc.player.setYaw(this.mc.player.getYaw() + MotionMath.wrap(this.flowYaw(var4, var6) - this.mc.player.getYaw()));
                this.mc.player.setPitch(20.0F);
-               this.mc.options.forwardKey.setPressed(true);
+               Input.key(this.mc.options.forwardKey, true);
                Vec3d var10 = this.mc.player.getPos();
                if (this.escLastPos != null && var10.squaredDistanceTo(this.escLastPos) < 4.0E-4) {
                   this.escStuckTicks++;
@@ -17240,7 +17406,7 @@ this.failures.remove(var1.pos());
 
                this.escLastPos = var10;
                if (var1 || var2.y > this.mc.player.getY() + 0.5 || this.escStuckTicks > 4) {
-                  this.mc.options.jumpKey.setPressed(true);
+                  Input.key(this.mc.options.jumpKey, true);
                }
 
                this.status = "Kẹt → bước ra " + BlockPos.ofFloored(var2).toShortString();
@@ -17276,7 +17442,7 @@ this.failures.remove(var1.pos());
    private void search() {
       this.status = "Tính đường đi";
       this.heavyLabel = "tìm đường";
-      this.search.advanceFor(10000000L);
+      this.search.advanceFor(18000000L);
       if (this.search.done()) {
          if (this.search.result() == null && this.climbSearch) {
             this.climbSearch = false;
@@ -17758,7 +17924,7 @@ this.failures.remove(var1.pos());
       }
 
       boolean advance() {
-         long var1 = System.nanoTime() + 10000000L;
+         long var1 = System.nanoTime() + 18000000L;
          if (!this.prepped && !this.prepass(var1)) {
             return false;
          }
@@ -18037,7 +18203,7 @@ this.failures.remove(var1.pos());
         }
         if (survivalSupplies != null && survivalSupplies.active()) {
             release();
-            mc.options.useKey.setPressed(false);
+            Input.key(mc.options.useKey, false);
             // 3.0.121: theo dõi cả menu /shop của việc mua đồ ăn/cúp → đóng menu xong cũng kiểm tra lại túi đồ trước khi đặt
             InventoryAccess.menuTick(mc, false);
             boolean active = survivalSupplies.tick(mc, ticks);
@@ -18063,10 +18229,13 @@ this.failures.remove(var1.pos());
         boolean needsFood = mc.player.getHungerManager().getFoodLevel() <= 14 && foodItem() == null;
         boolean needsPick = running && !SurvivalSupplies.hasPickaxe(mc);
         if (survivalSupplies == null) survivalSupplies = new SurvivalSupplies(config);
-        if ((needsFood || needsPick) && survivalSupplies.start(mc, ticks, needsFood, needsPick)) {
+        // 3.0.122: cần xô rỗng để múc nước khỏi khối trước khi đập → mua ở /shop
+        if (needEmptyBucket && InventoryAccess.count(mc, Items.BUCKET) > 0) needEmptyBucket = false;
+        boolean needsBucket = running && needEmptyBucket;
+        if ((needsFood || needsPick || needsBucket) && survivalSupplies.start(mc, ticks, needsFood, needsPick, needsBucket)) {
             stopEat("tiếp tế");
             release();
-            mc.options.useKey.setPressed(false);
+            Input.key(mc.options.useKey, false);
             if (mc.interactionManager.isBreakingBlock()) mc.interactionManager.cancelBlockBreaking();
             status = survivalSupplies.status();
             AutoBuildMod.LOGGER.info("[AutoBuild] Thiếu {} → tự mua ở /{}", needsFood ? "đồ ăn" : "cúp", config.shopCommand);
@@ -18083,9 +18252,9 @@ this.failures.remove(var1.pos());
 
 
     private void qualityStopMovement() {
-        mc.options.forwardKey.setPressed(false); mc.options.backKey.setPressed(false);
-        mc.options.leftKey.setPressed(false); mc.options.rightKey.setPressed(false);
-        mc.options.jumpKey.setPressed(false);
+        Input.key(mc.options.forwardKey, false); Input.key(mc.options.backKey, false);
+        Input.key(mc.options.leftKey, false); Input.key(mc.options.rightKey, false);
+        Input.key(mc.options.jumpKey, false);
         Input.forceSprint(mc, false, ticks);
     }
 
@@ -18099,7 +18268,7 @@ this.failures.remove(var1.pos());
         if (held && running && qualityAttackPos != null && ticks - qualityAttackTick <= 1
             && mc.player != null && mc.world != null && mc.currentScreen == null
             && Input.canHoldAttack(mc) && !mc.world.getBlockState(qualityAttackPos).isReplaceable()
-            && Input.crosshairOn(mc, qualityAttackPos, null)) mc.options.attackKey.setPressed(true);
+            && Input.crosshairOn(mc, qualityAttackPos, null)) Input.key(mc.options.attackKey, true);
     }
 
 
@@ -18116,9 +18285,16 @@ this.failures.remove(var1.pos());
             // Pause/userStop already release mod inputs. While idle, the physical
             // mouse belongs to the user and must remain usable for manual mining.
             if (!running) qualityAttackPos = null;
-            else if (qualityAttackPos != null && (qualityAttackTick != ticks || mc.currentScreen != null
-                || !Input.crosshairOn(mc, qualityAttackPos, null))) {
-                mc.options.attackKey.setPressed(false); qualityAttackPos = null;
+            else if (qualityAttackPos != null) {
+                // 3.0.122: người thật giữ chuột liên tục; vài tick mod bận việc khác (chưa gọi breakBlock) thì vẫn giữ,
+                // miễn tâm ngắm còn trên đúng khối đang đập. Nhả giữa chừng = game huỷ đập, server tính lại từ đầu.
+                BlockHitResult live = PlacementSolver.ray(mc, reach());
+                boolean keep = ticks - qualityAttackTick <= 3 && mc.currentScreen == null && Input.canHoldAttack(mc)
+                    && !Input.usePending() && qualityAttackPos.equals(mining)
+                    && !mc.world.getBlockState(qualityAttackPos).isReplaceable()
+                    && live.getType() == HitResult.Type.BLOCK && live.getBlockPos().equals(qualityAttackPos);
+                if (keep) Input.key(mc.options.attackKey, true);
+                else { Input.key(mc.options.attackKey, false); qualityAttackPos = null; }
             }
             qualityMovementGuard();
         }
@@ -18270,7 +18446,7 @@ this.failures.remove(var1.pos());
             Input.forceSneak(mc, false, ticks);
             if (gap && mc.options.jumpKey.isPressed()) {
                 if (qualityJumpDirectionSafe(v, ix, iz)) { qualityUnsafeSince = -1; return false; }
-                mc.options.jumpKey.setPressed(false);
+                Input.key(mc.options.jumpKey, false);
             }
         }
         if (!travel && (forward != 0 || left != 0) && ticks < qualityCautiousUntil) {
@@ -18617,25 +18793,30 @@ this.failures.remove(var1.pos());
         if (!waterIntoBlock(intended) || !mc.player.getMainHandStack().isOf(Items.WATER_BUCKET))
             return qualityPlaceNowOriginal(hit);
         if (!hit.getBlockPos().equals(intended.pos()) || !rotationSent() || !bucketReady(intended) || tntVeto(hit)) return false;
-        placeLockUntil = ticks + 2;
+        placeLockUntil = ticks + 3;
         // Filled BucketItem pours in use/interactItem, not useOnBlock. Calling
         // interactBlock first can consume the click without invoking the bucket.
         notePlacementClick(intended.pos());
-        Item heldBefore = mc.player.getMainHandStack().getItem();
-        int countBefore = mc.player.getMainHandStack().getCount();
-        ActionResult result = mc.interactionManager.interactItem(mc.player, Hand.MAIN_HAND);
-        qualityBucketUsed(heldBefore, countBefore, "đổ xô vào lá");
-        if (result != null && result.isAccepted()) {
-            mc.player.swingHand(Hand.MAIN_HAND);
-            qualityWaterRequestPos = intended.pos().toImmutable(); qualityWaterRequestAt = ticks;
-            AutoBuildMod.LOGGER.info("[AutoBuild] Đã gửi dùng xô nước @ {} → chờ nước vào lá", intended.pos().toShortString());
-            return true;
-        }
-        qualityWaterRequestPos = null; pourPos = null;
-        cooldown = qualityRetryTicks();
-        notePlaceFail(intended.pos(), "thao tác dùng xô nước chưa được nhận");
-        status = "Chưa dùng được xô → giữ mục tiêu và thử lại @ " + intended.pos().toShortString();
-        return false;
+        BlockPos at = intended.pos().toImmutable();
+        qualityWaterRequestPos = at; qualityWaterRequestAt = ticks;
+        // 3.0.122: chuột phải thật (Input.queueUse)
+        Input.queueUse(mc, hit, true, "đổ xô vào lá @ " + at.toShortString(), () -> {
+            Item heldBefore = mc.player.getMainHandStack().getItem();
+            int countBefore = mc.player.getMainHandStack().getCount();
+            ActionResult result = mc.interactionManager.interactItem(mc.player, Hand.MAIN_HAND);
+            qualityBucketUsed(heldBefore, countBefore, "đổ xô vào lá");
+            if (result != null && result.isAccepted()) {
+                mc.player.swingHand(Hand.MAIN_HAND);
+                qualityWaterRequestAt = ticks;
+                AutoBuildMod.LOGGER.info("[AutoBuild] Đã gửi dùng xô nước @ {} → chờ nước vào lá", at.toShortString());
+                return;
+            }
+            qualityWaterRequestPos = null; pourPos = null;
+            cooldown = qualityRetryTicks();
+            notePlaceFail(at, "thao tác dùng xô nước chưa được nhận");
+            status = "Chưa dùng được xô → giữ mục tiêu và thử lại @ " + at.toShortString();
+        });
+        return true;
     }
 
 

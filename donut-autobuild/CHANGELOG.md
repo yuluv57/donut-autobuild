@@ -8,6 +8,55 @@ Các bản không có mục riêng: 2.0.0–2.9.9 (16–18/09), 3.0.0–3.0.16 (
 
 ---
 
+## 3.0.122 — 26/10/2026 · phím/chuột thật, đào không bị huỷ giữa chừng, bỏ qua khối chỉ khác trạng thái
+
+Bản đầu tiên build bằng Gradle (Loom) từ mã nguồn trong repo. Sửa để build được: `OrderCollector` gọi `LoreComponent.lines()` (trước là tên chưa map `comp_2400`), `build.gradle` thêm `fabric-message-api-v1` (chỉ để biên dịch, không đóng kèm).
+
+### 1. Di chuyển bị server kéo lùi, đặt "rồi không hiện"
+- **Nguyên nhân:** mod gọi `interactBlock` ngay cuối tick, tức là SAU gói góc nhìn của tick đó. Người thật bấm chuột thì game xử lý cú bấm ở đầu tick sau (`handleInputEvents → doItemUse`), TRƯỚC gói góc nhìn. Anti-cheat kiểm tra cú đặt theo đúng thứ tự vanilla, nên cú đặt bị trả về. Khối client tưởng có (ghost block) làm nhân vật bị kéo lùi khi đi lên.
+- **Sửa:**
+  - Mọi phím mod bấm (W/A/S/D, nhảy, ngồi, chạy, chuột trái) đi qua `Input.key()`. Cuối tick, `Input.flush()` phát sự kiện phím thật (`KeyBinding.setKeyPressed` + `onKeyPressed`) theo trạng thái cuối tick, đúng đường của bàn phím/chuột vật lý.
+  - Đặt khối, đổ/múc xô, mở/đặt ender chest, bấm crafter: mod bấm chuột phải thật (`Input.queueUse`). Thao tác chỉ chạy khi game xử lý cú bấm (mixin `doItemUse`), và chỉ khi tâm ngắm game vẫn ở đúng ô/mặt.
+  - Vừa bấm chuột phải thì không quay đầu cho tới khi gói góc nhìn tiếp theo đã đi.
+
+### 2. Đào mãi không vỡ ("có vết nứt rồi mất", "client thấy vỡ nhưng server chưa phá")
+- **Nguyên nhân:** `breakBlock` nhả chuột trái ở đầu mỗi lần gọi rồi mới bấm lại. Chỉ cần 1 tick góc nhìn chưa gửi xong, ngắm lệch, hoặc mod bận việc khác là chuột bị nhả. Khi đó game huỷ đập (gửi ABORT), vết nứt mất và server tính lại từ đầu.
+- **Sửa:**
+  - Đang giữ chuột trên đúng khối thì giữ tiếp, không xoay đầu theo điểm ngắm mới.
+  - Mod bận việc khác tối đa 3 tick thì vẫn giữ chuột, miễn tâm ngắm còn trên khối.
+  - Chỉ nhả khi khối đã vỡ, đổi khối, hoặc có lý do an toàn (TNT, sắp đặt khối).
+
+### 3. Đặt nhầm loại khối ("Server đặt Composter thay vì Powered Rail")
+- **Nguyên nhân:** server bỏ qua cú SWAP đồ từ túi lên tay (0,9 giây sau vẫn cầm món cũ). Khi SWAP thành công server cũng không gửi gì, nên client không biết.
+- **Sửa:** sau mỗi SWAP, xin server gửi lại cả túi đồ NGAY. Gói này đi sau gói SWAP và server xử lý theo thứ tự. Mod khoá đặt khối tới khi nhận được.
+
+### 4. Khối chỉ khác trạng thái không bị đập nữa
+- Composter (`level`) và Note Block (`note`, `instrument`): coi là đúng.
+- `open` (cửa, cửa sập, cổng rào), `enabled` (hopper), `powered`/`lit`/`triggered`: coi là đúng.
+- Repeater khác `delay` và comparator khác `mode`: không đập, chuột phải chỉnh cho đúng (kể cả khi đang có điện).
+- Lá: `distance`/`persistent` bỏ qua, nhưng có nước hay không vẫn phải đúng.
+
+### 5. Khối có nước bên trong: múc nước trước khi đập
+- Trước khi đập bất kỳ khối waterlogged nào (lá, slab, thang…), mod cầm xô rỗng múc nước ra.
+- Múc xong mà khối đã đúng bản vẽ (vd. lá thừa nước) thì không đập nữa.
+- Không có xô rỗng thì mua ở `/shop`. Múc 6 lần không được thì để lại, không đập.
+
+### 6. Mua ở /shop có menu xác nhận
+- Sau cú bấm mua, nếu hiện menu khác Quick Buy có ô "Confirm" / "Accept" / "Yes" (hoặc kính/len xanh lá), mod bấm ô đó (tối đa 3 lần), không bao giờ bấm Cancel. Log ghi tên menu và các ô.
+- Món không cần xác nhận thì mua thẳng như cũ.
+
+### 7. Nhanh hơn
+- Thời gian tính toán mỗi tick tăng từ 10 lên 20 ms. Tìm đường dùng 18 ms/tick (trước 10), chọn chỗ đứng 8 ms/tick (trước 3), quét công trình 18 ms/tick (trước 10). Heuristic tìm đường duyệt mảng thay vì HashSet.
+- Đặt trước tối đa 4–6 khối chưa được xác nhận (trước 2–4). Khối bám vào khối chưa xác nhận vẫn phải chờ.
+- Khối kê: chỉ đi Order khi còn < 8 (trước < 16). Chỉ đếm khi túi đồ đã khớp server, và đếm cả tay trái.
+
+### Kiểm thử
+- Chạy offline với Minecraft 1.21.4 (đã bootstrap): BuildQuality 171, HeldPlacement 101, MovementResume 275, MovementMining (đi, tìm đường, đào giữ chuột) 206. Có thêm 15 phép mới cho mục 4 và cho tìm đường.
+- Các bộ ControllerQuality, Speed, WaterShop, WaterlogAim, WaterlogTransaction dừng ở cùng phép kiểm tra như khi chạy với mã 3.0.121 gốc. Đó là lỗi có từ trước (bộ test viết cho 3.0.120), không do bản này.
+- Chưa thử trên DonutSMP.
+
+---
+
 ## 3.0.121 — 04/10/2026 · hết đặt nhầm loại do túi đồ "đoán"; mua được cúp netherite
 
 Bản này dựng trên jar 3.0.120. Chỉ thay `BuildController*`, `InventoryAccess`, `SurvivalSupplies`; mọi lớp khác giữ nguyên từng byte. Toàn bộ thay đổi BuildController của 3.0.110–3.0.120 được ghép lại vào mã nguồn (trước đó các bản này chỉ có dạng bản vá bytecode).

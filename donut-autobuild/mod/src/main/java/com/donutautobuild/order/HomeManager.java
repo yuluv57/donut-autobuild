@@ -241,8 +241,8 @@ public final class HomeManager {
    private void send(MinecraftClient var1, String var2) {
       // 3.0.92: dừng mọi thao tác tay (đang đập/đặt) trước khi gửi lệnh mở menu
       if (var1.options != null) {
-         var1.options.attackKey.setPressed(false);
-         var1.options.useKey.setPressed(false);
+         com.donutautobuild.build.Input.key(var1.options.attackKey, false);
+         com.donutautobuild.build.Input.key(var1.options.useKey, false);
       }
 
       if (var1.interactionManager.isBreakingBlock()) {

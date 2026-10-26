@@ -61,6 +61,10 @@ public final class InventoryAccess {
                 mc.interactionManager.clickSlot(mc.player.playerScreenHandler.syncId, slot, hotbarSlot, SlotActionType.SWAP, mc.player);
                 inventory.selectedSlot = hotbarSlot;
                 noteClick(mc, "đổi đồ (SWAP) " + before);
+                // 3.0.122: log 18:18:34 / 18:21:32 — server KHÔNG làm cú SWAP (0,9 giây sau vẫn cầm Composter) trong khi server không gửi
+                // gì về khi SWAP thành công → client không có cách biết. Giờ sau mỗi SWAP xin server gửi lại cả túi đồ NGAY (gói đi sau
+                // gói SWAP, server xử lý theo thứ tự) và khoá đặt khối tới khi nhận được: túi đồ server gửi về mới là thật.
+                confirmNow(mc, "vừa đổi đồ (SWAP) " + before);
                 return false;
             }
         }
@@ -389,6 +393,32 @@ public final class InventoryAccess {
             forcedAt = var2;
             forcedCount++;
 
+            sendResync(var0, wantResync);
+            wantResync = null;
+         } else if (!var1) {
+            wantResync = null;
+         }
+      }
+   }
+
+   /** 3.0.122: đánh dấu túi đồ chưa kiểm chứng và gửi yêu cầu đồng bộ ngay (không chờ 1 lượt ping sau cú bấm như tick()) */
+   public static void confirmNow(MinecraftClient var0, String var1) {
+      markDirty(var0, var1);
+      if (resyncSentAt == 0L
+         && var0.getNetworkHandler() != null
+         && var0.player.currentScreenHandler == var0.player.playerScreenHandler
+         && var0.player.playerScreenHandler.getCursorStack().isEmpty()) {
+         forcedAt = System.currentTimeMillis();
+         forcedCount++;
+         sendResync(var0, var1);
+         wantResync = null;
+      } else if (wantResync == null) {
+         wantResync = var1;
+      }
+   }
+
+   private static void sendResync(MinecraftClient var0, String var1) {
+      long var2 = System.currentTimeMillis();
             try {
                int var4 = var0.player.playerScreenHandler.getRevision();
                resyncRev = var4;
@@ -423,19 +453,13 @@ public final class InventoryAccess {
                resyncSentAtLog = var2;
                menuSinceSend = false;
                dirtySeqAtSend = dirtySeq;
-               trace(var0, "xin server gửi lại túi đồ (" + wantResync + ", " + resyncHow() + ")");
+               trace(var0, "xin server gửi lại túi đồ (" + var1 + ", " + resyncHow() + ")");
                if (forcedCount <= 5 || forcedCount % 20 == 0) {
-                  AutoBuildMod.LOGGER.info("[AutoBuild] {} → xin server gửi lại toàn bộ túi đồ (lần {}), khoá đổi đồ/đặt khối tới khi nhận được", wantResync, forcedCount);
+                  AutoBuildMod.LOGGER.info("[AutoBuild] {} → xin server gửi lại toàn bộ túi đồ (lần {}), khoá đổi đồ/đặt khối tới khi nhận được", var1, forcedCount);
                }
             } catch (Throwable var6) {
                AutoBuildMod.LOGGER.warn("[AutoBuild] Không gửi được yêu cầu đồng bộ túi đồ: {}", var6.toString());
             }
-
-            wantResync = null;
-         } else if (!var1) {
-            wantResync = null;
-         }
-      }
    }
 
    /** giữ tên cũ cho BuildController */

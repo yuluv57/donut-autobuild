@@ -20,6 +20,8 @@ dependencies {
         modImplementation(module)
         include(module)
     }
+    // ChatHook dùng ClientReceiveMessageEvents; người chơi đã có Fabric API đầy đủ nên không đóng kèm
+    modCompileOnly fabricApi.module('fabric-message-api-v1', project.fabric_version)
     // 3 jar này KHÔNG có trong repo — chép vào mod/libs/ (xem libs/README.md)
     modImplementation files('libs/litematica-fabric-1.21.4-0.21.7.jar')
     modImplementation fileTree(dir: 'libs', include: 'malilib-*.jar')

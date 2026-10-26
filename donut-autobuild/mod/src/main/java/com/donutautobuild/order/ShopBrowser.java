@@ -108,6 +108,9 @@ public final class ShopBrowser {
       this.opens = 0;
       this.wrongMenus = 0;
       this.buyClicks = 0;
+      this.confirmClicks = 0;
+      this.confirmWait = 0;
+      this.confirmSig = "";
       this.adds = 0;
       this.added = false;
       this.picked = null;
@@ -532,7 +535,7 @@ public final class ShopBrowser {
 
             if (var2 - this.before >= this.need || var2 > this.before && InventoryAccess.freeSlots(var1) <= this.config.reserveFreeSlots) {
                this.finish(var1, ShopBrowser.Result.BOUGHT, "Đã mua " + (var2 - this.before) + " " + this.wantedName() + " ở /" + this.cmd());
-            } else {
+            } else if (!this.confirmTick(var1)) {
                switch (this.step) {
                   case OPEN:
                      this.openTick(var1);
@@ -777,6 +780,86 @@ public final class ShopBrowser {
             this.age = 0;
          }
       }
+   }
+
+   // ===== 3.0.122 (người dùng): vài món mua ở /shop hiện thêm menu xác nhận → bấm Confirm; món không cần thì mua thẳng như cũ =====
+   private int confirmClicks;
+   private int confirmWait;
+   private String confirmSig = "";
+
+   /** ô nút xác nhận: tên có "confirm"/"accept"/"yes"/"xác nhận" (không phải cancel); không có tên thì kính/len/bê tông xanh lá */
+   static int confirmSlot(MinecraftClient var0) {
+      int var1 = -1;
+
+      for (int var2 = 0; var2 < topSize(var0); var2++) {
+         ItemStack var3 = stack(var0, var2);
+         if (!var3.isEmpty()) {
+            String var4 = OrderRules.text(var3.getName().getString());
+            if (!var4.contains("cancel") && !var4.contains("deny") && !var4.contains("decline") && !var4.contains("back") && !var4.contains("hủy") && !var4.contains("huỷ")) {
+               if (var4.contains("confirm") || var4.contains("accept") || var4.equals("yes") || var4.startsWith("yes ") || var4.contains("xác nhận")) {
+                  return var2;
+               }
+
+               String var5 = id(var3);
+               if (var1 < 0 && (var5.startsWith("lime_") || var5.startsWith("green_")) && (var5.endsWith("glass_pane") || var5.endsWith("stained_glass") || var5.endsWith("wool") || var5.endsWith("concrete") || var5.endsWith("terracotta"))) {
+                  var1 = var2;
+               }
+            }
+         }
+      }
+
+      return var1;
+   }
+
+   /** true = đang ở menu xác nhận mua và đã/đang bấm Confirm (tick này không làm bước khác) */
+   private boolean confirmTick(MinecraftClient var1) {
+      if (this.step == ShopBrowser.Step.OPEN || !menuOpen(var1) || var1.player.currentScreenHandler.getCursorStack().isEmpty() == false) {
+         return false;
+      }
+
+      String var2 = title(var1);
+      if (var2.contains("quick buy") || var2.contains("select item")) {
+         return false;
+      }
+
+      // chỉ sau khi đã bấm mua (WAIT_ITEM) hoặc menu ghi rõ là xác nhận
+      if (this.step != ShopBrowser.Step.WAIT_ITEM && !var2.contains("confirm") && !var2.contains("xác nhận")) {
+         return false;
+      }
+
+      int var3 = confirmSlot(var1);
+      if (var3 < 0) {
+         return false;
+      }
+
+      if (!this.settled(var1)) {
+         return true;
+      }
+
+      if (this.lastSig.equals(this.confirmSig) && ++this.confirmWait < 30) {
+         this.status = "Chờ server sau khi bấm Confirm";
+         return true;
+      }
+
+      if (this.confirmClicks >= 3) {
+         this.end(var1, "menu xác nhận \"" + var2 + "\" bấm Confirm 3 lần chưa xong");
+         return true;
+      }
+
+      this.logMenu(var1);
+      this.confirmClicks++;
+      this.confirmWait = 0;
+      this.confirmSig = this.lastSig;
+      ItemStack var4 = stack(var1, var3);
+      AutoBuildMod.LOGGER.info("[AutoBuild] Shop tìm hàng: menu xác nhận \"{}\" → bấm \"{}\" (ô {}, {}) để mua {}",
+         new Object[]{var1.currentScreen.getTitle().getString(), var4.getName().getString(), var3, id(var4), this.wantedName()});
+      this.status = "Bấm Confirm mua " + this.wantedName();
+      var1.interactionManager.clickSlot(var1.player.currentScreenHandler.syncId, var3, 0, SlotActionType.PICKUP, var1.player);
+      this.stable = 0;
+      // sau Confirm: chờ hàng về như sau cú bấm mua
+      this.step = ShopBrowser.Step.WAIT_ITEM;
+      this.age = 0;
+      return true;
    }
 
    private void waitItemTick(MinecraftClient var1, int var2) {

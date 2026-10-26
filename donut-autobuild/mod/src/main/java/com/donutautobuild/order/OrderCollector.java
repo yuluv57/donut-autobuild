@@ -189,7 +189,7 @@ public final class OrderCollector {
       var1.add(var0.getName().getString());
       LoreComponent var2 = (LoreComponent)var0.get(DataComponentTypes.LORE);
       if (var2 != null) {
-         for (Text var4 : (java.util.List<Text>)var2.comp_2400()) {
+         for (Text var4 : (java.util.List<Text>)var2.lines()) {
             var1.add(var4.getString());
          }
       }
