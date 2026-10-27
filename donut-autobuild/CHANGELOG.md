@@ -8,6 +8,54 @@ Các bản không có mục riêng: 2.0.0–2.9.9 (16–18/09), 3.0.0–3.0.16 (
 
 ---
 
+## 3.0.128 — 27/10/2026 · hết mua dồn cúp, công tắc cho đồ vào hopper, hết kẹt 4 giờ giữa 2 hopper, ghi nguyên nhân chết
+
+Log 3.0.127 ngày 27/10 (02:15–09:02).
+
+### 1. Mua quá nhiều cúp netherite
+- **Triệu chứng:** 02:34–02:57 mua 15 cúp, mỗi cái ~8M. Trong túi đã có cúp.
+- **Nguyên nhân:**
+  - Trong 23 phút nhân vật chết 23 lần, đồ rơi tại chỗ chết.
+  - Hồi sinh xong, mod `/home` về rồi thấy túi không có cúp, mua ngay ở `/shop`.
+  - Sau đó mod đi qua chỗ chết, nhặt lại cả cúp cũ. Cúp cứ thế dồn lại trong túi.
+- **Sửa (`SurvivalSupplies`, `BuildController.pickaxeComingBack`):**
+  - Chưa mua cúp khi: vừa chết dưới 30 giây, túi đồ chưa được server xác nhận, hoặc có cúp rơi trên đất trong 32 ô.
+  - Cúp ở tay trái hoặc đang nằm trên con trỏ cũng tính là có cúp.
+  - Mua xong 1 cúp thì 5 phút sau mới được mua cái nữa. Trong 1 giờ mua tối đa 3 cái; quá thì ghi cảnh báo và thôi mua.
+
+### 2. Công tắc "Đồ trong hopper" / "Đồ trong rương/dropper…" (tab Cài đặt)
+- **Yêu cầu:** nhiều farm không cần hopper có đúng đồ như bản vẽ.
+- **Sửa:** 2 công tắc mới (`fillHoppers`, `fillContainers`, mặc định BẬT).
+  - Tắt "Đồ trong hopper": mod vẫn đặt hopper đúng hướng, nhưng không mở ra cho đồ, không chờ hopper đủ đồ mới lên tầng, không đập khối che để mở hopper.
+  - Tắt "Đồ trong rương/dropper…": như trên cho rương, thùng, dropper, dispenser, lò, giá pha chế.
+  - Đồ chỉ dùng cho loại khối đang tắt thì không còn được giữ lại khỏi `/sell` / ender chest.
+
+### 3. Kẹt 4 giờ 45 phút giữa 2 hopper
+- **Triệu chứng:** 03:50–08:36 chỉ có 2 dòng lặp: hopper A "30 giây chưa cho đồ xong", sang hopper B, lại "30 giây chưa cho đồ xong", rồi quay lại A. 569 lần.
+- **Nguyên nhân:**
+  1. Hopper nối vào máy, chuyển đồ đi liên tục. Mod cho Cobblestone vào mãi mà không bao giờ đủ 320, hết 30 giây thì bỏ. Vừa kẹt vừa tốn Cobblestone (91 lần "Thiếu Cobblestone để cho vào khối chứa", có lúc mua ở shop).
+  2. Giới hạn 8 lần thử nằm trong `fillQueue`. Khối bị bỏ khỏi hàng thì `fillGate` lại thêm vào với số đếm 0, nên không bao giờ chạm giới hạn.
+- **Sửa (`BuildController` + `ContainerFill.Job.moved`):**
+  - Đã cho vào nhiều hơn bản vẽ cần 1 chồng (64) mà vẫn thiếu → khối chứa đang tự chuyển đồ đi → coi như xong, ghi nhớ, không cho thêm.
+  - Đếm số lần hỏng riêng cho từng khối chứa, không mất khi khối bị bỏ khỏi hàng. Đủ 3 lần thì báo chat, không chặn lên tầng nữa, 5 phút sau thử lại khi đi ngang.
+  - Dòng "30 giây chưa cho đồ xong" ghi kèm: menu có mở không, số lần bấm mở / bấm trong menu, số món đã cho vào, số tick ngắm trượt, có đang ngồi không.
+
+### 4. Ghi nguyên nhân mất máu và chết
+- **Triệu chứng:** log có 23 lần "Nhân vật đã chết", không dòng nào cho biết vì sao. Phần lớn chết 5–10 giây sau `/home 3` (Y=-49), hai lần ở cạnh hopper -44223, -46, -208500.
+- **Sửa:** mỗi lần mất máu ghi 1 dòng `Mất máu 20.0 → 17.0 @ x, y, z: <nguyên nhân>` (cùng nguyên nhân thì 3 giây 1 dòng). Lúc chết ghi `Chết @ … : nguyên nhân cuối = …`.
+  - Nguyên nhân lấy từ gói damage của server (`inWall` = ngạt trong khối, `lava`, `drown`, `mob` + tên quái, `fall`…), kèm cờ đầu kẹt trong khối / trong lava / đang cháy / hết dưỡng khí.
+  - Gửi log lần sau sẽ biết chỗ home hay chỗ hopper đang giết nhân vật.
+
+### 5. Log gọn hơn
+- "nằm trước mặt piston → nhiều khả năng bị piston đẩy đi" (7194 dòng) chỉ ghi kèm 5 dòng đầu mỗi 10 giây, giống "từng xong nhưng giờ chưa đúng".
+- "… cần … → đưa vào hàng sửa" (~1300 dòng): 5 dòng đầu mỗi 10 giây + số tổng.
+- "Đã /home 3 về tầng Y=null" → ghi Y đang đứng khi chưa chọn tầng.
+
+### Build
+`./gradlew build` (Loom 1.17.7) thành công. Chưa chạy thử trong game.
+
+---
+
 ## 3.0.127 — 26/10/2026 · bấm Confirm khi mua, crafter nhanh hơn, chạy cả đêm, đập khối kê ngay, dùng góc gửi riêng nhiều hơn
 
 ### 1. Mua ở /shop mà không bấm Confirm

@@ -2,7 +2,7 @@
 
 Mod Fabric **client** cho Minecraft 1.21.4. Tự xây một placement của Litematica trong chế độ Sinh tồn trên server DonutSMP. Mod điều khiển nhân vật như người chơi thật: bấm phím W/A/S/D, ngồi, nhảy, chuột trái/phải. Server không cần cài gì.
 
-Bản hiện tại: **3.0.127** (`release/donut-autobuild-fabric-1.21.4-3.0.127.jar`).
+Bản hiện tại: **3.0.128** (`release/donut-autobuild-fabric-1.21.4-3.0.128.jar`).
 
 - Lịch sử sửa lỗi: [CHANGELOG.md](CHANGELOG.md)
 - Hướng dẫn review bản này: [docs/REVIEW-3.0.121.md](docs/REVIEW-3.0.121.md)
@@ -33,7 +33,7 @@ Cần:
 - MaLiLib (đang dùng 0.23.5)
 - Java 21
 
-Chép `release/donut-autobuild-fabric-1.21.4-3.0.127.jar` vào thư mục `mods`. Trong `mods` chỉ được có **một** bản AutoBuild.
+Chép `release/donut-autobuild-fabric-1.21.4-3.0.128.jar` vào thư mục `mods`. Trong `mods` chỉ được có **một** bản AutoBuild.
 
 ## Cách dùng
 
@@ -118,7 +118,7 @@ Cần:
 
 Jar ra ở `mod/build/libs/`. So jar vừa build với jar phát hành: [tools/README.md](tools/README.md).
 
-Jar 3.0.127 trong `release/` được build bằng chính bộ Gradle này (`./gradlew build`, Loom 1.17.7). Các bản ≤ 3.0.121 được biên dịch bằng `javac` với stub Minecraft rồi remap sang tên intermediary.
+Jar 3.0.128 trong `release/` được build bằng chính bộ Gradle này (`./gradlew build`, Loom 1.17.7). Các bản ≤ 3.0.121 được biên dịch bằng `javac` với stub Minecraft rồi remap sang tên intermediary.
 
 ## Kiểm thử
 

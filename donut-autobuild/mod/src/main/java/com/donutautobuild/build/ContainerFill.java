@@ -114,6 +114,8 @@ public final class ContainerFill {
       private Key carryKey;
       private int carryLeft;
       private int carrySource = -1;
+      /** 3.0.128: số món đã bấm cho vào khối chứa trong lần mở này (hopper chuyển đồ đi thì số này vượt xa số bản vẽ cần) */
+      private int moved;
       public final List<Want> missing = new ArrayList<>();
 
       public Job(Map<Key, Want> var1) {
@@ -122,6 +124,21 @@ public final class ContainerFill {
 
       public Map<Key, Want> wants() {
          return this.wants;
+      }
+
+      public int moved() {
+         return this.moved;
+      }
+
+      /** tổng số món bản vẽ cần trong khối chứa */
+      public int wantedTotal() {
+         int var1 = 0;
+
+         for (Want var3 : this.wants.values()) {
+            var1 += var3.count();
+         }
+
+         return var1;
       }
 
       /** số món key đang có trong phần khối chứa (ô 0..top-1) */
@@ -171,10 +188,12 @@ public final class ContainerFill {
                   // còn cần ≥ cả chồng đang cầm và ô đích trống → đặt cả chồng (chuột trái), không thì từng chiếc (chuột phải)
                   if (this.carryLeft >= var3.getCount() && var7.isEmpty()) {
                      this.carryLeft = this.carryLeft - var3.getCount();
+                     this.moved = this.moved + var3.getCount();
                      return new Click(var6, 0, SlotActionType.PICKUP, "đặt " + var3.getCount() + " " + var4.label() + " vào ô " + var6);
                   }
 
                   this.carryLeft--;
+                  this.moved++;
                   return new Click(var6, 1, SlotActionType.PICKUP, "đặt 1 " + var4.label() + " vào ô " + var6);
                }
 
@@ -213,6 +232,7 @@ public final class ContainerFill {
                   int var18 = this.wholeStack(var1, var2, var15.key(), var16);
                   if (var18 >= 0) {
                      ItemStack var19 = var1.getSlot(var18).getStack();
+                     this.moved = this.moved + var19.getCount();
                      return new Click(var18, 0, SlotActionType.QUICK_MOVE, "shift-click " + var19.getCount() + " " + var15.key().label() + " vào (cần thêm " + var16 + ")");
                   }
 

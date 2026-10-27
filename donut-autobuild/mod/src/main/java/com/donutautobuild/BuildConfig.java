@@ -103,6 +103,10 @@ public final class BuildConfig {
    public java.util.Map<String, Integer> crafterLayerMasks = new java.util.HashMap<>();
    /** 3.0.125: khối chứa đã cho đủ đồ theo bản vẽ (placement@gốc|x, y, z) → vào lại game không mở kiểm tra lại */
    public java.util.Set<String> filledContainers = new java.util.HashSet<>();
+   /** 3.0.128 (người dùng): có cho đồ vào hopper theo bản vẽ không — nhiều farm không cần hopper có đúng đồ như bản vẽ */
+   public boolean fillHoppers = true;
+   /** 3.0.128: như trên cho rương, thùng, dropper, dispenser, lò, giá pha chế */
+   public boolean fillContainers = true;
    public int configVersion;
    private static final int CURRENT_VERSION = 11;
    public int maxScaffoldBlocks = 2048;

@@ -180,8 +180,11 @@ public final class BuildScreen extends LegacyPanelScreen {
         ButtonWidget[] home = new ButtonWidget[1];
         home[0] = rowButton(10, right + 30, w() - half() - 34, homeText(), () -> { setModHome(config.modHomeNumber + 1); home[0].setMessage(Text.literal(homeText())); },
             "Không dùng: mod không bao giờ /home, /sethome. Home N: chọn 1 home còn TRỐNG giao cho mod — từ tầng 3 mod tự xoá home N cũ và /sethome N ở mỗi tầng, lỡ ngã thì /home N. Các home khác mod không đụng tới.");
-        rowButton(11, x(), w(), "§aLưu cài đặt", this::saveSettings, null);
-        return 12;
+        // 3.0.128 (người dùng): tắt = không mở hopper / khối chứa để cho đồ theo bản vẽ (farm không cần đúng đồ bên trong)
+        toggle(11, x(), half(), "Đồ trong hopper", () -> config.fillHoppers, value -> config.fillHoppers = value);
+        toggle(11, right, w() - half() - 4, "Đồ trong rương/dropper…", () -> config.fillContainers, value -> config.fillContainers = value);
+        rowButton(12, x(), w(), "§aLưu cài đặt", this::saveSettings, null);
+        return 13;
     }
     /**
      * 3.0.124 (người dùng: "GUI cho crafter như trước"): danh sách tầng có crafter, lưới 3×3 bấm để tắt/mở từng ô cho cả tầng,

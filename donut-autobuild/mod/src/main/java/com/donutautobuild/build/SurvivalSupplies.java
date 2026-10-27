@@ -2,8 +2,10 @@ package com.donutautobuild.build;
 
 import com.donutautobuild.BuildConfig;
 import com.donutautobuild.order.ShopBrowser;
+import java.util.ArrayDeque;
 import java.util.Set;
 import net.minecraft.client.MinecraftClient;
+import net.minecraft.entity.ItemEntity;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
 import net.minecraft.item.Items;
@@ -28,6 +30,9 @@ public final class SurvivalSupplies {
     private boolean food;
     private int foodRetryAt;
     private int toolRetryAt;
+    /** 3.0.128: lúc (tick) các lần đã mua cúp — chặn mua dồn */
+    private final ArrayDeque<Integer> pickaxeBuys = new ArrayDeque<>();
+    private boolean pickaxeCapped;
     private int bucketRetryAt;
     private int kind;
     private String status = "";
@@ -46,7 +51,16 @@ public final class SurvivalSupplies {
     public static boolean hasPickaxe(MinecraftClient mc) {
         for (int slot = 0; slot < 36; slot++)
             if (usablePickaxe(mc.player.getInventory().getStack(slot))) return true;
-        return false;
+        // 3.0.128: cúp ở tay trái hoặc đang nằm trên con trỏ cũng là có cúp
+        return usablePickaxe(mc.player.getOffHandStack())
+            || usablePickaxe(mc.player.playerScreenHandler.getCursorStack());
+    }
+
+    /** 3.0.128: cúp rơi trên đất gần đây (đồ rơi lúc chết) → đi qua là nhặt lại, không mua cái mới */
+    public static boolean pickaxeDroppedNear(MinecraftClient mc, double radius) {
+        if (mc.world == null || mc.player == null) return false;
+        return !mc.world.getEntitiesByClass(ItemEntity.class, mc.player.getBoundingBox().expand(radius),
+            e -> usablePickaxe(e.getStack())).isEmpty();
     }
 
     public boolean active() { return active; }
@@ -62,7 +76,7 @@ public final class SurvivalSupplies {
             food = true;
             kind = 0;
             buyer.start(mc, STEAK, FOOD, 32, config.shopMaxPrice);
-        } else if (needPickaxe && ticks >= toolRetryAt) {
+        } else if (needPickaxe && ticks >= toolRetryAt && !pickaxeCapped(ticks)) {
             food = false;
             kind = 1;
             // 3.0.121: cúp netherite ở /shop giá ~5,1M (log 30/09 11:27:21 "You bought 1 Netherite Pickaxe for $ 5.1M"), trần chung
@@ -86,10 +100,32 @@ public final class SurvivalSupplies {
         if (!buyer.active()) {
             active = false;
             // Retry availability failures, without sending /shop every game tick.
-            int retry = ticks + (buyer.result() == ShopBrowser.Result.BOUGHT ? 40 : 400);
+            boolean bought = buyer.result() == ShopBrowser.Result.BOUGHT;
+            int retry = ticks + (bought ? 40 : 400);
+            if (kind == 1 && bought) {
+                // 3.0.128 (log 27/10 02:34–02:57: 15 cúp trong 23 phút): vừa mua cúp → 5 phút không mua cúp nữa
+                pickaxeBuys.addLast(ticks);
+                retry = ticks + PICKAXE_GAP_TICKS;
+            }
             if (kind == 0) foodRetryAt = retry; else if (kind == 1) toolRetryAt = retry; else bucketRetryAt = retry;
         }
         return active;
+    }
+
+    /** 3.0.128: sau 1 lần mua cúp phải chờ 5 phút; 1 giờ tối đa 3 cái */
+    public static final int PICKAXE_GAP_TICKS = 6000;
+    public static final int PICKAXE_MAX_PER_HOUR = 3;
+
+    /** đã mua đủ PICKAXE_MAX_PER_HOUR cúp trong 1 giờ qua → không mua nữa (báo 1 lần) */
+    private boolean pickaxeCapped(int ticks) {
+        while (!pickaxeBuys.isEmpty() && ticks - pickaxeBuys.peekFirst() > 72000) pickaxeBuys.pollFirst();
+        boolean capped = pickaxeBuys.size() >= PICKAXE_MAX_PER_HOUR;
+        if (capped && !pickaxeCapped) {
+            status = "Đã mua " + pickaxeBuys.size() + " cúp trong 1 giờ → không mua thêm (xem vì sao cúp bị mất: chết/rơi đồ?)";
+            com.donutautobuild.AutoBuildMod.LOGGER.warn("[AutoBuild] {}", status);
+        }
+        pickaxeCapped = capped;
+        return capped;
     }
 
     public void cancel(MinecraftClient mc) {

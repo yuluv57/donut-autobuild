@@ -1239,6 +1239,8 @@ public final class BuildController {
 
    private void qualityTickInnerOriginal() {
       this.ticks++;
+      // 3.0.128: trước cả việc mua đồ (lần chết 02:55:37 xảy ra lúc đang ở menu /shop)
+      this.damageWatch();
       if (this.survivalSupplyTick()) {
          return;
       }
@@ -3697,6 +3699,21 @@ public final class BuildController {
    private int fillActions;
    private int fillScanAt = -1000;
    private Object fillPlanFor;
+   /** 3.0.128: số lần mở/cho đồ hỏng của từng khối chứa — không mất khi khối bị bỏ khỏi fillQueue (3.0.127 đếm lại từ 0 → lặp mãi) */
+   private final Map<BlockPos, Integer> fillFails = new HashMap<>();
+
+   /**
+    * 3.0.128 (người dùng: "cho chỉnh có xây theo hopper bản vẽ hay không vì có những farm không cần đúng hopper"): tắt ở tab Cài đặt
+    * → không mở loại khối chứa đó để cho đồ.
+    */
+   private boolean fillEnabled(BlockPos var1) {
+      SchematicPlan.Target var2 = this.plan == null ? null : this.plan.at(var1);
+      if (var2 == null) {
+         return false;
+      } else {
+         return var2.state().getBlock() instanceof HopperBlock ? this.config.fillHoppers : this.config.fillContainers;
+      }
+   }
 
    private String fillKey(BlockPos var1) {
       return this.plan.placement.getName() + "@" + this.plan.placement.getOrigin().toShortString() + "|" + var1.toShortString();
@@ -3713,6 +3730,7 @@ public final class BuildController {
       this.fillUncover.clear();
       this.fillUncoverTries.clear();
       this.fillCollectLeft.clear();
+      this.fillFails.clear();
       if (this.plan != null) {
          for (BlockPos var2 : this.plan.containerItems.keySet()) {
             if (this.config.filledContainers.contains(this.fillKey(var2))) {
@@ -3737,7 +3755,7 @@ public final class BuildController {
 
    /** vừa đặt xong khối chứa có đồ trong bản vẽ → cho đồ vào ngay */
    private void noteContainerPlaced(BlockPos var1) {
-      if (this.plan != null && this.plan.containerItems.containsKey(var1)) {
+      if (this.plan != null && this.plan.containerItems.containsKey(var1) && this.fillEnabled(var1)) {
          if (this.fillPlanFor != this.plan) {
             this.fillReset();
          }
@@ -3789,6 +3807,7 @@ public final class BuildController {
                SchematicPlan.Target var4 = this.plan.at(var3);
                if (!this.fillDone.contains(var3)
                   && var4 != null
+                  && this.fillEnabled(var3)
                   && var1.squaredDistanceTo(Vec3d.ofCenter(var3)) < 64.0
                   && this.mc.world.isChunkLoaded(var3)
                   && this.mc.world.getBlockState(var3).getBlock() == var4.state().getBlock()) {
@@ -3802,7 +3821,7 @@ public final class BuildController {
          while (var5.hasNext()) {
             Entry<BlockPos, Integer> var6 = var5.next();
             BlockPos var7 = var6.getKey();
-            if (this.fillDone.contains(var7) || !this.mc.world.isChunkLoaded(var7) || var6.getValue() >= 8) {
+            if (this.fillDone.contains(var7) || !this.mc.world.isChunkLoaded(var7) || var6.getValue() >= 8 || !this.fillEnabled(var7)) {
                var5.remove();
             } else if (!ContainerFill.fillable(this.mc.world.getBlockState(var7))) {
                var5.remove();
@@ -3864,6 +3883,7 @@ public final class BuildController {
                && this.config.inYRange(var7.getY())
                && !this.fillDone.contains(var7)
                && !this.fillNamedOnly.contains(var7)
+               && this.fillEnabled(var7)
                && this.mc.world.isChunkLoaded(var7)) {
                SchematicPlan.Target var8 = this.plan.at(var7);
                BlockState var9 = this.mc.world.getBlockState(var7);
@@ -3936,7 +3956,10 @@ public final class BuildController {
       BlockPos var2 = this.fillUncover.get(var1);
       if (var2 == null) {
          return false;
-      } else if (this.fillDone.contains(var2) || this.fillNamedOnly.contains(var2) || this.ticks - this.fillUncoverAt.getOrDefault(var1, 0) > 3600) {
+      } else if (this.fillDone.contains(var2)
+         || this.fillNamedOnly.contains(var2)
+         || !this.fillEnabled(var2)
+         || this.ticks - this.fillUncoverAt.getOrDefault(var1, 0) > 3600) {
          this.fillUncover.remove(var1);
          this.fillUncoverAt.remove(var1);
          return false;
@@ -4071,6 +4094,7 @@ public final class BuildController {
             this.fillDone.add(this.fillPos);
             this.fillQueue.remove(this.fillPos);
             this.fillRetryAt.remove(this.fillPos);
+            this.fillFails.remove(this.fillPos);
             if (this.fillPartner != null) {
                this.fillDone.add(this.fillPartner);
                this.fillQueue.remove(this.fillPartner);
@@ -4088,23 +4112,74 @@ public final class BuildController {
       this.setStage(BuildController.Stage.NEXT);
    }
 
+   /**
+    * 3.0.128: một lần mở/cho đồ hỏng. Đủ 3 lần → không chặn lên tầng nữa (fillNamedOnly), 5 phút sau mới thử lại, báo chat 1 lần.
+    * 3.0.127 đếm số lần trong fillQueue, mà khối bị bỏ khỏi hàng thì fillGate thêm lại với số 0 → lặp mãi giữa 2 hopper.
+    */
+   private void fillFail(int var1, String var2) {
+      BlockPos var3 = this.fillPos;
+      this.fillDoneWith(false, var1, var2);
+      if (var3 != null) {
+         int var4 = this.fillFails.merge(var3.toImmutable(), 1, Integer::sum);
+         if (var4 >= 3) {
+            this.fillRetryAt.put(var3.toImmutable(), this.ticks + 6000);
+            if (this.fillNamedOnly.add(var3.toImmutable())) {
+               this.say("Khối chứa @ " + var3.toShortString() + ": " + var4 + " lần chưa cho đồ được → bỏ qua, xây tiếp (5 phút sau thử lại khi đi ngang).");
+            }
+         }
+      }
+   }
+
    private void fillTick() {
       if (this.fillPos == null || this.fillJob == null || this.mc.player == null) {
          this.setStage(BuildController.Stage.NEXT);
       } else if (++this.fillTicks > 600) {
-         this.fillDoneWith(false, 400, "30 giây chưa cho đồ xong → xây tiếp, 20 giây sau quay lại");
+         // 3.0.128: ghi kèm lý do (menu có mở không, đã bấm bao nhiêu) — log 3.0.127 chỉ có dòng này lặp 4 giờ 45 phút
+         this.fillFail(
+            400,
+            "30 giây chưa cho đồ xong (menu "
+               + (this.mc.player.currentScreenHandler != this.mc.player.playerScreenHandler ? "đang mở" : "chưa mở")
+               + ", bấm mở "
+               + this.fillClicks
+               + " lần, bấm trong menu "
+               + this.fillActions
+               + " lần, đã cho vào "
+               + this.fillJob.moved()
+               + "/"
+               + this.fillJob.wantedTotal()
+               + " món, ngắm trượt "
+               + this.fillNoHit
+               + " tick, ngồi="
+               + this.mc.player.isInSneakingPose()
+               + ") → xây tiếp, 20 giây sau quay lại"
+         );
       } else {
          ScreenHandler var1 = this.mc.player.currentScreenHandler;
          if (var1 != this.mc.player.playerScreenHandler && this.mc.currentScreen instanceof net.minecraft.client.gui.screen.ingame.HandledScreen) {
             int var2 = var1.slots.size() - 36;
             if (var2 <= 0) {
-               this.fillDoneWith(false, 400, "menu mở ra không phải khối chứa");
+               this.fillFail(400, "menu mở ra không phải khối chứa");
             } else if (this.fillTicks >= this.fillNextAt) {
                this.fillNextAt = this.fillTicks + 2;
+               if (this.fillJob.moved() >= this.fillJob.wantedTotal() + 64 && var1.getCursorStack().isEmpty()) {
+                  // 3.0.128 (log 27/10 03:50–08:36): hopper nối vào máy chuyển đồ đi liên tục → cho mãi không đủ, hết 30 giây lại sang
+                  // hopper kế bên, đốt Cobblestone suốt 4 giờ 45 phút. Đã cho vào nhiều hơn bản vẽ cần 1 chồng → coi như xong.
+                  this.fillDoneWith(
+                     true,
+                     0,
+                     "đã cho vào "
+                        + this.fillJob.moved()
+                        + " món (bản vẽ cần "
+                        + this.fillJob.wantedTotal()
+                        + ") mà vẫn thiếu → khối chứa đang tự chuyển đồ đi (máy chạy) → coi như xong, không cho thêm"
+                  );
+                  return;
+               }
+
                ContainerFill.Click var3 = this.fillJob.next(var1, var2);
                if (var3 != null) {
                   if (++this.fillActions > 400) {
-                     this.fillDoneWith(false, 1200, "bấm quá nhiều lần mà chưa đúng → để sau");
+                     this.fillFail(1200, "bấm quá nhiều lần mà chưa đúng → để sau");
                      return;
                   }
 
@@ -4112,7 +4187,7 @@ public final class BuildController {
                   this.fillCheckAt = -1;
                   this.status = "Cho đồ vào khối chứa: " + var3.why();
                } else if (!var1.getCursorStack().isEmpty()) {
-                  this.fillDoneWith(false, 400, "túi đầy, không trả được món trên con trỏ");
+                  this.fillFail(400, "túi đầy, không trả được món trên con trỏ");
                } else if (this.fillJob.satisfied(var1, var2)) {
                   // chờ 1 lượt ping rồi xem lại theo đồ server gửi về
                   if (this.fillCheckAt < 0) {
@@ -4123,7 +4198,7 @@ public final class BuildController {
                } else if (!this.fillJob.missing.isEmpty()) {
                   this.fillMissing(this.fillJob.missing);
                } else {
-                  this.fillDoneWith(false, 400, "không sắp được đồ (ô khối chứa không nhận?) → để sau");
+                  this.fillFail(400, "không sắp được đồ (ô khối chứa không nhận?) → để sau");
                }
             }
          } else if (this.mc.currentScreen != null) {
@@ -4135,13 +4210,13 @@ public final class BuildController {
             this.standToUse();
             BlockState var4 = this.mc.world.getBlockState(this.fillPos);
             if (!ContainerFill.fillable(var4)) {
-               this.fillDoneWith(false, 400, "khối không còn ở đó");
+               this.fillFail(400, "khối không còn ở đó");
                return;
             }
 
             Vec3d var5 = this.visiblePoint(this.fillPos);
             if (var5 == null) {
-               this.fillDoneWith(false, 400, "không nhìn thấy khối từ chỗ đứng → để sau");
+               this.fillFail(400, "không nhìn thấy khối từ chỗ đứng → để sau");
                return;
             }
 
@@ -4150,19 +4225,19 @@ public final class BuildController {
             BlockHitResult var7 = PlacementSolver.ray(this.mc, this.reach());
             boolean var8 = var7.getType() == Type.BLOCK && var7.getBlockPos().equals(this.fillPos);
             if (!var8 && this.rotationSent() && ++this.fillNoHit > 60) {
-               this.fillDoneWith(false, 400, "3 giây không ngắm trúng → xây tiếp, lát quay lại");
+               this.fillFail(400, "3 giây không ngắm trúng → xây tiếp, lát quay lại");
                return;
             }
 
             int var9 = 20 + this.latencyTicks();
             if (this.fillClicks >= 4 && this.fillTicks - this.fillOpenAt > var9 + 10) {
-               this.fillDoneWith(false, 400, "bấm mở " + this.fillClicks + " lần không lên menu (bị chặn / server lag) → để sau");
+               this.fillFail(400, "bấm mở " + this.fillClicks + " lần không lên menu (bị chặn / server lag) → để sau");
                return;
             }
 
             if (this.rotationSent() && !this.mc.player.isInSneakingPose() && this.fillTicks - this.fillOpenAt > var9 && var8 && !Input.usePending()) {
                if (this.tntVeto(var7)) {
-                  this.fillDoneWith(false, 2400, "gần TNT — không mở");
+                  this.fillFail(2400, "gần TNT — không mở");
                   return;
                }
 
@@ -4362,11 +4437,18 @@ public final class BuildController {
    private Object containerKeepFor;
 
    private Set<Item> containerKeep() {
-      if (this.plan != null && this.containerKeepFor != this.plan) {
-         this.containerKeepFor = this.plan;
+      // 3.0.128: chỉ giữ đồ của loại khối chứa đang bật cho đồ (đổi công tắc thì tính lại)
+      List<Object> var1 = this.plan == null ? null : List.of(this.plan, this.config.fillHoppers, this.config.fillContainers);
+      if (this.plan != null && !var1.equals(this.containerKeepFor)) {
+         this.containerKeepFor = var1;
          this.containerKeep.clear();
 
-         for (net.minecraft.nbt.NbtList var2 : this.plan.containerItems.values()) {
+         for (Entry<BlockPos, net.minecraft.nbt.NbtList> var5 : this.plan.containerItems.entrySet()) {
+            if (!this.fillEnabled(var5.getKey())) {
+               continue;
+            }
+
+            net.minecraft.nbt.NbtList var2 = var5.getValue();
             for (int var3 = 0; var3 < var2.size(); var3++) {
                Identifier var4 = Identifier.tryParse(var2.getCompound(var3).getString("id"));
                if (var4 != null && Registries.ITEM.containsId(var4)) {
@@ -5685,7 +5767,7 @@ public final class BuildController {
                // 3.0.100: vừa dịch chuyển → quên "khoảng cách gần nhất từng tới" của các khối. Lỗi 20:21–20:28: lần trước đã tới
                // cách khối 3 ô, lần này đi từ home tới gần dần mà chưa gần hơn 3 ô → watchdog "10 giây không tiến triển" → /home → lặp.
                this.navBestDist.clear();
-               this.say("Đã /" + this.config.homeCommand + " " + this.config.ownHomeNumber + " về tầng Y=" + this.currentLayer + ", xây tiếp.");
+               this.say("Đã /" + this.config.homeCommand + " " + this.config.ownHomeNumber + " về tầng Y=" + (this.currentLayer != null ? this.currentLayer : this.mc.player.getBlockY()) + ", xây tiếp.");
             } else if (this.homes.teleportLag() && !Reconnector.active()) {
                // 3.0.95: dịch chuyển về home không được do server lag → thoát ra vào lại; vào xong afterReconnect() tự /home lại
                this.say("Không dịch chuyển về home được (server lag) → thoát ra vào lại.");
@@ -16839,6 +16921,8 @@ this.failures.remove(var1.pos());
     */
    private int redoWindowAt = -100000;
    private int redoInWindow;
+   private int repairLogAt = -100000;
+   private int repairLogN;
 
    /** 3.0.127: log 3.0.126 có 2233 dòng "từng xong nhưng giờ chưa đúng/trống" liền nhau → chỉ ghi 5 dòng đầu mỗi 10 giây + số tổng */
    void noteRedo(BlockPos var1) {
@@ -16933,6 +17017,58 @@ this.failures.remove(var1.pos());
         Reconnector.request(mc, this, why);
     }
 
+
+   // ===== 3.0.128: ghi nguyên nhân mất máu / chết (log 27/10: chết 23 lần, log không có dòng nào cho biết vì sao) =====
+   private float hurtLastHealth = -1.0F;
+   private String hurtLastWhy = "";
+   private int hurtSaidAt = -100000;
+   private boolean hurtDeadSaid;
+
+   /** nguyên nhân lần mất máu gần nhất theo gói EntityDamage của server: inWall = ngạt trong khối, lava, drown, mob, fall… */
+   private String hurtCause() {
+      net.minecraft.entity.damage.DamageSource var1 = this.mc.player.getRecentDamageSource();
+      String var2 = var1 == null ? "?" : var1.getName();
+      if (var1 != null && var1.getAttacker() != null) {
+         var2 = var2 + " bởi " + var1.getAttacker().getName().getString();
+      }
+
+      return var2
+         + (this.mc.player.isInsideWall() ? ", đầu kẹt trong khối" : "")
+         + (this.mc.player.isInLava() ? ", trong lava" : "")
+         + (this.mc.player.isOnFire() ? ", đang cháy" : "")
+         + (this.mc.player.getAir() <= 0 ? ", hết dưỡng khí" : "");
+   }
+
+   private void damageWatch() {
+      if (this.mc.player == null || this.mc.world == null) {
+         this.hurtLastHealth = -1.0F;
+      } else {
+         float var1 = this.mc.player.getHealth();
+         if (!this.mc.player.isAlive()) {
+            if (!this.hurtDeadSaid) {
+               this.hurtDeadSaid = true;
+               AutoBuildMod.LOGGER.warn("[AutoBuild] Chết @ {} (Y={}): nguyên nhân cuối = {}",
+                  new Object[]{this.mc.player.getBlockPos().toShortString(), this.mc.player.getBlockY(), this.hurtLastWhy.isEmpty() ? hurtCause() : this.hurtLastWhy});
+            }
+         } else {
+            this.hurtDeadSaid = false;
+            if (this.hurtLastHealth >= 0.0F && var1 < this.hurtLastHealth - 0.01F) {
+               String var2 = hurtCause();
+               // mỗi nguyên nhân mới ghi ngay, cùng nguyên nhân thì 3 giây 1 dòng
+               if (!var2.equals(this.hurtLastWhy) || this.ticks - this.hurtSaidAt >= 60) {
+                  this.hurtSaidAt = this.ticks;
+                  AutoBuildMod.LOGGER.info("[AutoBuild] Mất máu {} → {} @ {}: {}",
+                     new Object[]{String.format(Locale.ROOT, "%.1f", this.hurtLastHealth), String.format(Locale.ROOT, "%.1f", var1),
+                        this.mc.player.getBlockPos().toShortString(), var2});
+               }
+
+               this.hurtLastWhy = var2;
+            }
+         }
+
+         this.hurtLastHealth = var1;
+      }
+   }
 
    private String selectedSig() {
       try {
@@ -19068,7 +19204,8 @@ this.failures.remove(var1.pos());
                      if (this.choose && BuildController.this.placedDone.remove(var3.pos())) {
                         BuildController.this.noteRedo(var3.pos());
                         String var95 = BuildController.this.pistonNear(var3.pos());
-                        if (var95 != null) {
+                        // 3.0.128: log 27/10 có 7194 dòng này → chỉ ghi kèm 5 dòng đầu mỗi 10 giây như noteRedo
+                        if (var95 != null && BuildController.this.redoInWindow <= 5) {
                            AutoBuildMod.LOGGER.info("[AutoBuild] {} nằm trước mặt {} → nhiều khả năng bị piston đẩy đi; tầng Y={} sẽ được làm lại trước khi lên tiếp", new Object[]{var3.pos().toShortString(), var95, var3.pos().getY()});
                         }
                         if (var6.isReplaceable() && BuildController.this.ghosts.put(var3.pos().toImmutable(), BuildController.this.ticks) == null) {
@@ -19239,6 +19376,25 @@ this.failures.remove(var1.pos());
     }
 
 
+    private int pickWaitSaidAt = -100000;
+
+    /**
+     * 3.0.128 (người dùng 27/10: "mua quá nhiều cúp trong khi người có 1 cúp rồi"). Log: chết 23 lần, mỗi lần hồi sinh + /home xong là
+     * "Thiếu cúp → mua" ngay (15 cúp, ~8M mỗi cái), rồi đi qua chỗ chết nhặt lại cúp cũ → túi dồn nhiều cúp. Chưa mua khi:
+     * vừa chết dưới 30 giây, túi đồ chưa được server xác nhận, hoặc có cúp rơi trên đất trong 32 ô (sắp nhặt lại).
+     */
+    private boolean pickaxeComingBack() {
+        String why = null;
+        if (ticks - respawnAt < 600) why = "vừa hồi sinh, chờ nhặt lại đồ rơi";
+        else if (InventoryAccess.dirty()) why = "túi đồ chưa được server xác nhận";
+        else if (SurvivalSupplies.pickaxeDroppedNear(mc, 32.0)) why = "có cúp rơi trên đất gần đây";
+        if (why != null && ticks - pickWaitSaidAt > 1200) {
+            pickWaitSaidAt = ticks;
+            AutoBuildMod.LOGGER.info("[AutoBuild] Không thấy cúp trong túi nhưng {} → chưa mua cúp", why);
+        }
+        return why != null;
+    }
+
     private void cancelSurvivalSupplies() {
         if (survivalSupplies != null) survivalSupplies.cancel(mc);
     }
@@ -19277,7 +19433,7 @@ this.failures.remove(var1.pos());
             || eating || pillar || pending != null || mc.currentScreen != null
             || !mc.player.isOnGround() || overhanging()) return false;
         boolean needsFood = mc.player.getHungerManager().getFoodLevel() <= 14 && foodItem() == null;
-        boolean needsPick = running && !SurvivalSupplies.hasPickaxe(mc);
+        boolean needsPick = running && !SurvivalSupplies.hasPickaxe(mc) && !pickaxeComingBack();
         if (survivalSupplies == null) survivalSupplies = new SurvivalSupplies(config);
         // 3.0.122: cần xô rỗng để múc nước khỏi khối trước khi đập → mua ở /shop
         if (needEmptyBucket && InventoryAccess.count(mc, Items.BUCKET) > 0) needEmptyBucket = false;
@@ -19596,7 +19752,13 @@ this.failures.remove(var1.pos());
         if (repairWrong.size() >= 64 && !repairWrong.containsKey(pos)) return;
         if (!repairWrong.containsKey(pos)) {
             noteWrong(pos);
-            AutoBuildMod.LOGGER.info("[AutoBuild] {} @ {} cần {} → đưa vào hàng sửa", new Object[]{actual, pos.toShortString(), wanted.state()});
+            // 3.0.128: log 27/10 có ~1300 dòng này liền nhau → 5 dòng đầu mỗi 10 giây + số tổng
+            if (ticks - repairLogAt > 200) {
+                if (repairLogN > 5) AutoBuildMod.LOGGER.info("[AutoBuild] … tổng {} ô sai đưa vào hàng sửa trong lượt trước", repairLogN);
+                repairLogAt = ticks; repairLogN = 0;
+            }
+            if (++repairLogN <= 5)
+                AutoBuildMod.LOGGER.info("[AutoBuild] {} @ {} cần {} → đưa vào hàng sửa", new Object[]{actual, pos.toShortString(), wanted.state()});
         }
         repairWrong.put(pos.toImmutable(), actual);
     }
